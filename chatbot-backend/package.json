@@ -1,19 +1,31 @@
 {
   "name": "chatbot-backend",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "Backend server for the Sensor Dashboard Chatbot",
+  "main": "Server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node Server.js",
+    "dev": "nodemon Server.js",
+    "seed": "node seedData.js"
   },
-  "keywords": [],
+  "keywords": [
+    "chatbot",
+    "openai",
+    "supabase",
+    "sensor",
+    "iot"
+  ],
   "author": "",
-  "license": "ISC",
-  "description": "",
+  "license": "MIT",
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
     "axios": "^1.8.1",
+    "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "openai": "^4.86.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
   }
 }

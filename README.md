@@ -11,8 +11,90 @@ A React Native application with a chatbot interface that allows users to query s
 
 ## Project Structure
 
-- `SensorDashboard/`: React Native frontend application
-- `chatbot-backend/`: Node.js backend server for handling chatbot requests
+The project is divided into two main parts:
+
+### Frontend (SensorDashboard/)
+
+The React Native application that provides the user interface for the sensor dashboard and chatbot.
+
+#### Key Files and Directories
+
+- **src/screens/**
+
+  - `Chatbot.js`: The chatbot interface component that allows users to query sensor data using natural language.
+  - `Dashboard.js`: The main dashboard screen that displays current sensor readings and status.
+  - `Graph.js`: Component for displaying sensor data in graphical format.
+  - `Welcome.js`: Welcome screen with app introduction.
+
+- **src/utils/**
+
+  - `config.js`: Central configuration file for the application, containing API endpoints, Supabase credentials, and sensor metadata.
+  - `supabase.js`: Initializes and exports the Supabase client for database access.
+  - `sensorUtils.js`: Utility functions for working with sensor data, including fetching, formatting, and calculations.
+
+- **App.js**: Main application component that sets up navigation and routing.
+
+### Backend (chatbot-backend/)
+
+The Node.js server that processes chatbot queries, communicates with OpenAI, and retrieves data from Supabase.
+
+#### Key Files
+
+- `Server.js`: The main server file that handles API requests, processes queries using OpenAI, and retrieves data from Supabase.
+- `seedData.js`: Script to generate and insert sample sensor data into the Supabase database.
+- `.env`: Environment variables file for storing API keys and configuration.
+
+## File Descriptions
+
+### Frontend Files
+
+#### Chatbot.js
+
+This component provides a chat interface for users to query sensor data. It uses the GiftedChat library to create a messaging UI and communicates with the backend server to process natural language queries and retrieve data from the Supabase database.
+
+Key features:
+
+- Sends user messages to the backend for processing
+- Displays responses from the chatbot
+- Shows a loading indicator while waiting for responses
+- Handles error states gracefully
+
+#### Dashboard.js
+
+The main dashboard screen that displays current sensor readings and status. It fetches the latest sensor data from Supabase and presents it in a user-friendly format.
+
+#### config.js
+
+Central configuration file that stores global settings for the application. This includes:
+
+- Backend API URL
+- Supabase credentials
+- Chart configuration
+- Sensor units and display names
+
+#### sensorUtils.js
+
+Utility functions for working with sensor data, including:
+
+- Fetching latest and historical sensor data from Supabase
+- Formatting sensor values with appropriate units
+- Calculating statistics (average, minimum, maximum)
+- Converting database field names to human-readable names
+
+### Backend Files
+
+#### Server.js
+
+The main server file that handles API requests from the frontend. It:
+
+- Processes natural language queries using OpenAI
+- Determines the type of data needed (current values, historical averages, trends, etc.)
+- Retrieves the appropriate data from Supabase
+- Formats the data into natural language responses
+
+#### seedData.js
+
+Script to generate and insert sample sensor data into the Supabase database. It creates realistic data points for the past 30 days with hourly readings for various sensor metrics.
 
 ## Setup Instructions
 
@@ -66,12 +148,12 @@ A React Native application with a chatbot interface that allows users to query s
 5. Seed the database with sample data:
 
    ```
-   node seedData.js
+   npm run seed
    ```
 
 6. Start the backend server:
    ```
-   node Server.js
+   npm start
    ```
 
 ### Frontend Setup
@@ -88,7 +170,7 @@ A React Native application with a chatbot interface that allows users to query s
    npm install
    ```
 
-3. Update the backend API URL in `src/screens/Chatbot.js` to match your backend server address.
+3. Update the backend API URL in `src/utils/config.js` to match your backend server address.
 
 4. Start the React Native application:
    ```
@@ -108,8 +190,9 @@ A React Native application with a chatbot interface that allows users to query s
 ## Troubleshooting
 
 - If the chatbot is not responding, check that the backend server is running.
-- Ensure your Supabase credentials are correct in the `.env` file.
+- Ensure your Supabase credentials are correct in the `.env` file and `config.js`.
 - Check the console logs for any error messages.
+- Make sure your device/emulator and backend server are on the same network.
 
 ## License
 
