@@ -60,6 +60,25 @@ const handleChatRequest = async (req, res) => {
         data = await supabaseService.getStatus(field);
         break;
 
+      case "AVERAGE_ALL_SENSORS":
+        const avgDays = parseInt(timeRange);
+        data = await supabaseService.getAverageOfAllSensors(avgDays);
+        break;
+
+      case "TIME_OF_HIGHEST":
+        const highestDays = parseInt(timeRange);
+        data = await supabaseService.getTimeOfHighestValue(field, highestDays);
+        break;
+
+      case "VIBRATION_DETAILS":
+        const vibDays = parseInt(timeRange);
+        data = await supabaseService.getVibrationDetails(vibDays);
+        break;
+
+      case "MAINTENANCE_CHECK":
+        data = await supabaseService.checkMaintenance();
+        break;
+
       default:
         return res.json({
           response:
