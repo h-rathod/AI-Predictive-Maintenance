@@ -9,17 +9,21 @@
 // For local development, use your computer's IP address instead of localhost
 // In production, this should be set to your actual backend URL
 export const BACKEND_URL =
-  process.env.REACT_APP_BACKEND_URL || "http://192.168.109.248:3000";
+  process.env.REACT_APP_BACKEND_URL || "http://192.168.240.248:3000";
 
 // Supabase configuration
-// These values should be set in environment variables in production
+// These values MUST be set in environment variables
+if (!process.env.REACT_APP_SUPABASE_URL) {
+  console.error("Missing REACT_APP_SUPABASE_URL environment variable");
+}
+
+if (!process.env.REACT_APP_SUPABASE_ANON_KEY) {
+  console.error("Missing REACT_APP_SUPABASE_ANON_KEY environment variable");
+}
+
 export const SUPABASE_CONFIG = {
-  url:
-    process.env.REACT_APP_SUPABASE_URL ||
-    "https://fmatkstxwdcevvlilysa.supabase.co",
-  anonKey:
-    process.env.REACT_APP_SUPABASE_ANON_KEY ||
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZtYXRrc3R4d2RjZXZ2bGlseXNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDA3MTY1NDYsImV4cCI6MjA1NjI5MjU0Nn0.OM9bfgvfOXfl9MI3yOttMztpBM7QYTt79kEHNUIQGLc",
+  url: process.env.REACT_APP_SUPABASE_URL || "",
+  anonKey: process.env.REACT_APP_SUPABASE_ANON_KEY || "",
 };
 
 // Chart configuration
