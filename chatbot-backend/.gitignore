@@ -1,5 +1,10 @@
 # Environment variables
 .env
+.env.local
+.env.development
+.env.test
+.env.production
+.env.*
 
 # Logs
 logs
@@ -10,28 +15,27 @@ yarn-error.log*
 
 # Dependency directories
 node_modules/
+vendor/
 
-# Optional npm cache directory
-.npm
+# Build directories
+dist/
+build/
 
-# Optional eslint cache
+# Cache and temporary files
+.cache/
+.tmp/
 .eslintcache
-
-# Output of 'npm pack'
-*.tgz
-
-# dotenv environment variables file
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.parcel-cache
 
 # IDE files
 .idea/
 .vscode/
+*.sublime-*
 *.swp
 *.swo
 
 # OS files
 .DS_Store
-Thumbs.db 
+Thumbs.db
+ehthumbs.db
+Desktop.ini 
