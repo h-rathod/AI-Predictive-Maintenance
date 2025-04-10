@@ -93,21 +93,21 @@ The application uses a Supabase PostgreSQL database with the following main tabl
 
 **sensor_history**
 
-- `id` (uuid, primary key)
-- `timestamp` (timestamptz)
-- `temperature_internal` (float8)
-- `temperature_evaporator` (float8)
-- `ambient_temperature` (float8)
-- `humidity_internal` (float8)
-- `pressure_refrigerant` (float8)
-- `current_compressor` (float8)
-- `vibration_level` (float8)
-- `gas_leak_level` (float8)
-- `compressor_status` (boolean)
-- `compressor_cycle_time` (integer)
-- `energy_consumption` (float8)
-- `temperature_gradient` (float8)
-- `pressure_trend` (float8)
+     - `id` (uuid, primary key)
+     - `timestamp` (timestamptz)
+     - `temperature_internal` (float8)
+     - `temperature_evaporator` (float8)
+     - `ambient_temperature` (float8)
+     - `humidity_internal` (float8)
+     - `pressure_refrigerant` (float8)
+     - `current_compressor` (float8)
+     - `vibration_level` (float8)
+     - `gas_leak_level` (float8)
+     - `compressor_status` (boolean)
+     - `compressor_cycle_time` (integer)
+     - `energy_consumption` (float8)
+     - `temperature_gradient` (float8)
+     - `pressure_trend` (float8)
 
 ## Contributing
 

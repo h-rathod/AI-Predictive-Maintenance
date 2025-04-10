@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -6,251 +6,216 @@ import {
   Dimensions,
   TouchableOpacity,
   ScrollView,
-  Platform,
   ActivityIndicator,
+  Platform,
+  StatusBar,
 } from "react-native";
-import { LineGraph } from "react-native-graph";
-import { Card, Title, Portal, Provider } from "react-native-paper";
+import { useRoute, useNavigation } from "@react-navigation/native";
+import { Card } from "react-native-paper";
 import { supabase } from "../utils/supabase";
-import { useRoute } from "@react-navigation/native";
-import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme } from "../utils/ThemeContext";
-import { format } from "date-fns";
+import { format, subDays, subWeeks, subMonths } from "date-fns";
 import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { LineChart } from "react-native-chart-kit";
 
 const { width } = Dimensions.get("window");
 
 export default function Graph() {
   const { colors, isDarkMode } = useTheme();
   const route = useRoute();
+  const navigation = useNavigation();
   const { param } = route.params;
-  const [historicalData, setHistoricalData] = useState([]);
+
+  // State variables
+  const [data, setData] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
-  const [stats, setStats] = useState({ average: 0, highest: 0, lowest: 0 });
+  const [isLoading, setIsLoading] = useState(true);
+  const [timeframe, setTimeframe] = useState("1w");
+  const [selectedPoint, setSelectedPoint] = useState(null);
+  const [stats, setStats] = useState({ average: 0, max: 0, min: 0 });
   const [dateRange, setDateRange] = useState({
-    startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // Default to 1 week ago
+    startDate: subWeeks(new Date(), 1),
     endDate: new Date(),
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [datePickerType, setDatePickerType] = useState("start");
-  const [dataTimeframe, setDataTimeframe] = useState("1w"); // Default to 1 week
-  const [isLoading, setIsLoading] = useState(false);
 
-  // New state for point selection
-  const [selectedPoint, setSelectedPoint] = useState(null);
-
+  // Fetch data when component mounts or param changes
   useEffect(() => {
-    fetchHistoricalData();
+    fetchData();
   }, [param]);
 
+  // Filter data when date range changes
   useEffect(() => {
-    if (historicalData.length > 0) {
-      applyDateFilter();
+    if (data.length > 0) {
+      filterDataByDateRange();
     }
-  }, [historicalData, dateRange]);
+  }, [data, dateRange]);
 
+  // Calculate stats when filtered data changes
   useEffect(() => {
-    if (filteredData.length > 0) {
-      calculateStats();
-    }
+    calculateStats();
   }, [filteredData]);
 
-  // Fetch historical data from Supabase
-  const fetchHistoricalData = async () => {
+  // Fetch data from Supabase
+  const fetchData = async () => {
     try {
       setIsLoading(true);
       // Get data from the last 30 days
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const thirtyDaysAgo = subDays(new Date(), 30);
 
-      const { data, error } = await supabase
+      const { data: responseData, error } = await supabase
         .from("sensor_data")
         .select(`timestamp, ${param}`)
         .gte("timestamp", thirtyDaysAgo.toISOString())
         .order("timestamp", { ascending: true });
 
       if (error) {
-        console.error("Error fetching historical data:", error);
+        console.error("Error fetching data:", error);
         setIsLoading(false);
         return;
       }
 
-      // Ensure data is valid and has the required fields
-      const validData = (data || []).filter(
-        (item) =>
-          item &&
-          item.timestamp &&
-          item[param] !== undefined &&
-          item[param] !== null
-      );
+      // Validate data
+      const validData = (responseData || [])
+        .filter(
+          (item) =>
+            item &&
+            item.timestamp &&
+            item[param] !== undefined &&
+            item[param] !== null
+        )
+        .map((item) => {
+          try {
+            return {
+              timestamp: new Date(item.timestamp),
+              value: parseFloat(item[param]) || 0,
+              originalTimestamp: item.timestamp,
+            };
+          } catch (err) {
+            console.warn("Error processing data item:", err);
+            return null;
+          }
+        })
+        .filter((item) => item !== null);
 
-      setHistoricalData(validData);
+      console.log(`Fetched ${validData.length} valid data points`);
+      setData(validData);
+
+      // Set initial timeframe
+      handleTimeframeChange(timeframe);
+
       setIsLoading(false);
     } catch (err) {
       console.error("Failed to fetch data:", err);
-      setHistoricalData([]);
+      setData([]);
       setIsLoading(false);
     }
   };
 
-  // Filter data based on selected date range
-  const applyDateFilter = () => {
+  // Filter data by date range
+  const filterDataByDateRange = () => {
     try {
-      setIsLoading(true);
       // Adjust dates to include the full day
       const startDate = new Date(dateRange.startDate);
       startDate.setHours(0, 0, 0, 0);
+
       const endDate = new Date(dateRange.endDate);
       endDate.setHours(23, 59, 59, 999);
 
-      const filtered = historicalData.filter((item) => {
-        if (!item || !item.timestamp) return false;
-
-        const itemDate = new Date(item.timestamp);
-        return itemDate >= startDate && itemDate <= endDate;
+      const filtered = data.filter((item) => {
+        try {
+          return item.timestamp >= startDate && item.timestamp <= endDate;
+        } catch (err) {
+          return false;
+        }
       });
 
+      console.log(`Filtered to ${filtered.length} data points`);
       setFilteredData(filtered);
-      setIsLoading(false);
     } catch (err) {
       console.error("Error filtering data:", err);
       setFilteredData([]);
-      setIsLoading(false);
     }
   };
 
-  // Calculate statistics from filtered data
+  // Calculate statistics
   const calculateStats = () => {
-    if (filteredData.length === 0) {
-      setStats({ average: 0, highest: 0, lowest: 0 });
+    if (!filteredData || filteredData.length === 0) {
+      setStats({ average: 0, max: 0, min: 0 });
       return;
     }
 
     try {
-      const values = filteredData
-        .filter(
-          (item) => item && item[param] !== undefined && item[param] !== null
-        )
-        .map((item) => parseFloat(item[param]) || 0);
-
-      if (values.length === 0) {
-        setStats({ average: 0, highest: 0, lowest: 0 });
-        return;
-      }
-
+      const values = filteredData.map((item) => item.value);
       const sum = values.reduce((a, b) => a + b, 0);
       const average = sum / values.length;
-      const highest = Math.max(...values);
-      const lowest = Math.min(...values);
+      const max = Math.max(...values);
+      const min = Math.min(...values);
 
       setStats({
         average: parseFloat(average.toFixed(2)),
-        highest: parseFloat(highest.toFixed(2)),
-        lowest: parseFloat(lowest.toFixed(2)),
+        max: parseFloat(max.toFixed(2)),
+        min: parseFloat(min.toFixed(2)),
       });
     } catch (err) {
       console.error("Error calculating stats:", err);
-      setStats({ average: 0, highest: 0, lowest: 0 });
+      setStats({ average: 0, max: 0, min: 0 });
     }
   };
 
-  // Set the time frame for displaying data
-  const setTimeframe = (timeframe) => {
-    // Set loading state to true when changing timeframe
-    setIsLoading(true);
-
-    // Clear existing points and selected point to prevent stale data
+  // Handle timeframe button press
+  const handleTimeframeChange = (newTimeframe) => {
+    setTimeframe(newTimeframe);
     setSelectedPoint(null);
 
-    // Update timeframe state
-    setDataTimeframe(timeframe);
-
     const now = new Date();
-    let startDate = new Date();
+    let startDate;
 
-    switch (timeframe) {
+    switch (newTimeframe) {
       case "1d":
-        startDate.setDate(now.getDate() - 1);
+        startDate = subDays(now, 1);
         break;
       case "1w":
-        startDate.setDate(now.getDate() - 7);
+        startDate = subWeeks(now, 1);
         break;
       case "1m":
-        startDate.setMonth(now.getMonth() - 1);
-        break;
-      case "3m":
-        startDate.setMonth(now.getMonth() - 3);
+        startDate = subMonths(now, 1);
         break;
       default:
-        setIsLoading(false);
-        return; // For custom, don't change the date range
+        return;
     }
 
-    // Update date range (this will trigger applyDateFilter in the useEffect)
     setDateRange({
       startDate,
       endDate: now,
     });
   };
 
-  // Handle date selection in date picker
-  const onDateChange = (event, selectedDate) => {
-    if (Platform.OS === "android") {
-      setShowDatePicker(false);
-    }
+  // Format date based on timeframe
+  const formatDate = (date, customTimeframe = timeframe) => {
+    if (!date) return "";
 
-    if (selectedDate) {
-      if (datePickerType === "start") {
-        // Check if selected start date is before end date
-        if (selectedDate <= dateRange.endDate) {
-          setDateRange((prev) => ({
-            ...prev,
-            startDate: selectedDate,
-          }));
-          if (Platform.OS === "ios") {
-            setDatePickerType("end");
-          } else {
-            // For Android, show the end date picker after selecting start date
-            setTimeout(() => {
-              showDatePickerModal("end");
-            }, 300);
-          }
-        } else {
-          // If selected start date is after end date, adjust end date
-          setDateRange({
-            startDate: selectedDate,
-            endDate: new Date(selectedDate.getTime() + 86400000), // next day
-          });
-        }
-      } else {
-        // Check if selected end date is after start date
-        if (selectedDate >= dateRange.startDate) {
-          setDateRange((prev) => ({
-            ...prev,
-            endDate: selectedDate,
-          }));
-        } else {
-          // If selected end date is before start date, adjust start date
-          setDateRange({
-            startDate: new Date(selectedDate.getTime() - 86400000), // previous day
-            endDate: selectedDate,
-          });
-        }
-        if (Platform.OS === "ios") {
-          setShowDatePicker(false);
-        }
+    try {
+      switch (customTimeframe) {
+        case "1d":
+          return format(date, "h:mm a");
+        case "1w":
+          return format(date, "EEE, MMM d");
+        case "1m":
+          return format(date, "MMM d");
+        default:
+          return format(date, "MMM d, yyyy");
       }
+    } catch (err) {
+      console.error("Error formatting date:", err);
+      return "";
     }
   };
 
-  // Show date picker modal
-  const showDatePickerModal = (type) => {
-    setDatePickerType(type);
-    setShowDatePicker(true);
-  };
-
-  // Get the appropriate unit for a parameter
-  const getUnit = (param) => {
+  // Get unit for the parameter
+  const getUnit = (paramName) => {
     const units = {
       evaporator_coil_temperature: "°C",
       freezer_temperature: "°C",
@@ -267,168 +232,277 @@ export default function Graph() {
       gas_leakage_level: "ppm",
       temperature_diff: "°C",
     };
-    return units[param] || "";
+    return units[paramName] || "";
   };
 
   // Format parameter name for display
-  const formatParamName = (param) => {
-    return param
+  const formatParamName = (paramName) => {
+    return paramName
       .split("_")
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(" ");
   };
 
-  // Format date for display based on timeframe
-  const formatDate = (date, timeframe = dataTimeframe) => {
-    if (!date) return "";
+  // Handle date picker
+  const onDateChange = (event, selectedDate) => {
+    if (Platform.OS === "android") {
+      setShowDatePicker(false);
+    }
 
-    try {
-      switch (timeframe) {
-        case "1d":
-          return format(date, "h:mm a"); // Hour:Minute AM/PM
-        case "1w":
-          return format(date, "EEE, MMM d"); // Tue, Jun 7
-        case "1m":
-        case "3m":
-          return format(date, "MMM d"); // Jun 7
-        default:
-          return format(date, "MMM d, yyyy"); // Jun 7, 2023
+    if (selectedDate) {
+      if (datePickerType === "start") {
+        setDateRange((prev) => ({
+          ...prev,
+          startDate:
+            selectedDate <= prev.endDate ? selectedDate : prev.startDate,
+        }));
+
+        if (Platform.OS === "ios") {
+          setDatePickerType("end");
+        } else {
+          setTimeout(() => {
+            showDatePickerModal("end");
+          }, 300);
+        }
+      } else {
+        setDateRange((prev) => ({
+          ...prev,
+          endDate: selectedDate >= prev.startDate ? selectedDate : prev.endDate,
+        }));
+
+        if (Platform.OS === "ios") {
+          setShowDatePicker(false);
+        }
       }
-    } catch (err) {
-      console.error("Error formatting date:", err);
-      return "";
     }
   };
 
-  // Format value for display
+  // Show date picker modal
+  const showDatePickerModal = (type) => {
+    setDatePickerType(type);
+    setShowDatePicker(true);
+  };
+
+  // Format value with unit
   const formatValue = (value) => {
     if (value === undefined || value === null) return "-";
-    return value.toFixed(1);
+    return `${value.toFixed(1)} ${getUnit(param)}`;
   };
 
-  // Prepare points for LineGraph
-  const points = useMemo(() => {
-    if (!filteredData || !filteredData.length) return [];
+  // Prepare chart data in chart-kit format
+  const chartData = useMemo(() => {
+    if (!filteredData || filteredData.length < 2) {
+      return {
+        labels: [],
+        datasets: [{ data: [] }],
+      };
+    }
 
     try {
-      // First, create a deep copy of filtered data to avoid any reference issues
-      const validItems = [...filteredData].filter(
-        (item) =>
-          item &&
-          item.timestamp &&
-          item[param] !== undefined &&
-          item[param] !== null
+      // For large datasets, limit to a reasonable number of data points for processing
+      let dataToUse = filteredData;
+
+      // A reasonable limit for number of points to plot
+      const maxDataPoints = 100;
+
+      if (filteredData.length > maxDataPoints) {
+        const step = Math.ceil(filteredData.length / maxDataPoints);
+        dataToUse = [];
+
+        for (let i = 0; i < filteredData.length; i += step) {
+          if (i < filteredData.length) {
+            dataToUse.push(filteredData[i]);
+          }
+        }
+
+        // Always include the last point
+        if (
+          dataToUse.length > 0 &&
+          dataToUse[dataToUse.length - 1] !==
+            filteredData[filteredData.length - 1]
+        ) {
+          dataToUse.push(filteredData[filteredData.length - 1]);
+        }
+      }
+
+      // Now, limit the number of labels on the x-axis
+      // We'll show only a few labels based on the timeframe
+      let labelIndices = [];
+      const maxLabels = timeframe === "1d" ? 4 : timeframe === "1w" ? 5 : 6;
+
+      if (dataToUse.length <= maxLabels) {
+        // Show all labels if we have fewer data points than maxLabels
+        labelIndices = dataToUse.map((_, index) => index);
+      } else {
+        // Calculate indices for the labels we want to show
+        const step = Math.floor(dataToUse.length / (maxLabels - 1));
+
+        // Always show the first and last label
+        labelIndices.push(0);
+
+        // Add evenly spaced labels in between
+        for (let i = step; i < dataToUse.length - 1; i += step) {
+          if (labelIndices.length < maxLabels - 1) {
+            labelIndices.push(i);
+          }
+        }
+
+        // Add the last index
+        labelIndices.push(dataToUse.length - 1);
+      }
+
+      // Create labels array with empty strings for positions we don't want to show
+      const labels = dataToUse.map((_, index) =>
+        labelIndices.includes(index)
+          ? formatDate(dataToUse[index].timestamp)
+          : ""
       );
 
-      if (!validItems.length) return [];
-
-      // Map to the format expected by the LineGraph component
-      return validItems
-        .map((item) => {
-          try {
-            const timestamp = new Date(item.timestamp);
-
-            // Safety check for invalid timestamps
-            if (isNaN(timestamp.getTime())) {
-              console.warn("Invalid timestamp detected:", item.timestamp);
-              return null;
-            }
-
-            return {
-              x: timestamp.getTime(),
-              y: parseFloat(item[param]) || 0,
-              timestamp: item.timestamp,
-              value: parseFloat(item[param]) || 0,
-            };
-          } catch (err) {
-            console.warn("Error processing data point:", err);
-            return null;
-          }
-        })
-        .filter((point) => point !== null); // Filter out any null points
+      return {
+        labels,
+        datasets: [
+          {
+            data: dataToUse.map((item) => item.value),
+            color: () => `rgba(0, 156, 255, 1)`, // Line color
+            strokeWidth: 2,
+          },
+        ],
+        // Store the raw data for reference
+        rawData: dataToUse,
+      };
     } catch (err) {
-      console.error("Error preparing points:", err);
-      return [];
+      console.error("Error preparing chart data:", err);
+      return { labels: [], datasets: [{ data: [] }] };
     }
-  }, [filteredData, param]);
+  }, [filteredData, timeframe]);
 
-  // Find max and min points for axis labels
-  const { maxPoint, minPoint } = useMemo(() => {
-    if (!points || !points.length) return { maxPoint: null, minPoint: null };
+  // Component to show when no data is available
+  const NoDataView = () => (
+    <View style={styles.noDataContainer}>
+      <Ionicons
+        name="analytics-outline"
+        size={64}
+        color={colors.textSecondary}
+        style={styles.noDataIcon}
+      />
+      <Text style={styles.noDataTitle}>No Data Available</Text>
+      <Text style={styles.noDataText}>
+        There's no data available for the selected time period. Try selecting a
+        different time range.
+      </Text>
+    </View>
+  );
 
-    try {
-      let max = points[0];
-      let min = points[0];
-
-      points.forEach((point) => {
-        if (!point) return;
-
-        if (point.y > max.y) max = point;
-        if (point.y < min.y) min = point;
-      });
-
-      return { maxPoint: max, minPoint: min };
-    } catch (err) {
-      console.error("Error finding max/min points:", err);
-      return { maxPoint: null, minPoint: null };
+  // Handle touch events on chart
+  const handleChartTouch = (data) => {
+    if (data && data.index !== undefined && chartData.rawData) {
+      const pointData = chartData.rawData[data.index];
+      if (pointData) {
+        setSelectedPoint({
+          value: pointData.value,
+          timestamp: pointData.timestamp,
+        });
+      }
     }
-  }, [points]);
+  };
 
-  // Handle point selection during pan gesture
-  const handlePointSelected = useCallback((point) => {
-    if (point && point.x && !isNaN(point.x)) {
-      setSelectedPoint(point);
-    }
-  }, []);
+  // Chart configuration
+  const chartConfig = {
+    backgroundColor: "transparent",
+    backgroundGradientFrom: isDarkMode ? "#001B36" : "#001F3F",
+    backgroundGradientTo: isDarkMode ? "#000814" : "#000C1F",
+    decimalPlaces: 1,
+    color: (opacity = 1) => `rgba(0, 156, 255, ${opacity})`,
+    labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
+    propsForBackgroundLines: {
+      strokeDasharray: "", // Solid lines
+      stroke: "rgba(255, 255, 255, 0.1)", // Very subtle grid lines
+      strokeWidth: 1,
+    },
+    propsForDots: {
+      r: "0", // Zero radius to hide dots
+      strokeWidth: "0",
+    },
+    fillShadowGradient: "rgba(0, 156, 255, 1)",
+    fillShadowGradientOpacity: 0.3,
+    useShadowColorFromDataset: false,
+  };
 
-  // Reset selected point when gesture ends
-  const handleGestureEnd = useCallback(() => {
-    setSelectedPoint(null);
-  }, []);
-
-  // Create theme-aware styles
-  const themedStyles = StyleSheet.create({
+  // Styles
+  const styles = StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: colors.background,
-      padding: 12,
-      paddingBottom: 80, // Add extra padding at the bottom to avoid navbar overlap
     },
-    graphContainer: {
-      marginTop: 10,
-      marginBottom: 20,
-      borderRadius: 16,
-      padding: 10,
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 16,
+      paddingTop: 12,
+      paddingBottom: 12,
+      backgroundColor: colors.background,
+    },
+    backButton: {
+      marginRight: 16,
+    },
+    titleContainer: {
+      alignItems: "center",
+      marginVertical: 20,
+    },
+    title: {
+      fontSize: 24,
+      fontWeight: "bold",
+      color: colors.text,
+      textAlign: "center",
+    },
+    dateRange: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      marginTop: 4,
+    },
+    contentContainer: {
+      flex: 1,
+      padding: 16,
+    },
+    card: {
       backgroundColor: colors.card,
+      borderRadius: 16,
+      padding: 16,
+      marginVertical: 12,
       borderWidth: 1,
       borderColor: colors.border,
-      alignItems: "center",
-      justifyContent: "center",
-      height: 280, // Fixed height for the graph
     },
-    loaderContainer: {
-      position: "absolute",
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      justifyContent: "center",
-      alignItems: "center",
-      backgroundColor: colors.card + "80", // Semi-transparent
-      zIndex: 10,
+    chartCard: {
+      backgroundColor: "transparent",
       borderRadius: 16,
+      marginVertical: 16,
+      overflow: "hidden",
     },
-    filterContainer: {
+    selectedPointContainer: {
       flexDirection: "row",
       justifyContent: "space-between",
-      paddingHorizontal: 5,
-      marginBottom: 15,
+      marginBottom: 8,
+      paddingHorizontal: 16,
+    },
+    selectedPointValue: {
+      fontSize: 18,
+      fontWeight: "bold",
+      color: colors.text,
+    },
+    selectedPointDate: {
+      fontSize: 14,
+      color: colors.textSecondary,
+    },
+    timeframeContainer: {
+      flexDirection: "row",
+      justifyContent: "center",
+      marginVertical: 12,
     },
     timeframeButton: {
-      paddingVertical: 6,
-      paddingHorizontal: 12,
+      paddingVertical: 8,
+      paddingHorizontal: 16,
       borderRadius: 20,
-      marginRight: 8,
+      marginHorizontal: 4,
     },
     timeframeButtonActive: {
       backgroundColor: colors.primary,
@@ -451,325 +525,215 @@ export default function Graph() {
     customDateButton: {
       flexDirection: "row",
       alignItems: "center",
-      paddingVertical: 6,
-      paddingHorizontal: 12,
+      paddingVertical: 8,
+      paddingHorizontal: 16,
       borderRadius: 20,
       backgroundColor: isDarkMode ? colors.card : "#F1F5F9",
       borderWidth: 1,
       borderColor: colors.border,
+      marginLeft: 4,
     },
     customDateText: {
       fontSize: 12,
       fontWeight: "600",
       color: colors.text,
-      marginLeft: 5,
-    },
-    stats: {
-      marginBottom: 20,
-      padding: 15,
-      borderRadius: 12,
-      backgroundColor: colors.card,
-      borderWidth: 1,
-      borderColor: colors.border,
+      marginLeft: 4,
     },
     statsRow: {
       flexDirection: "row",
       justifyContent: "space-between",
-      marginBottom: 8,
+      paddingVertical: 8,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
     },
-    statLabel: {
-      fontSize: 14,
+    statsLastRow: {
+      borderBottomWidth: 0,
+    },
+    statsLabel: {
       color: colors.textSecondary,
-    },
-    statValue: {
       fontSize: 14,
+    },
+    statsValue: {
+      color: colors.text,
       fontWeight: "600",
-      color: colors.text,
-    },
-    paramTitle: {
-      fontSize: 18,
-      fontWeight: "bold",
-      color: colors.text,
-      marginBottom: 5,
-      textAlign: "center",
-    },
-    dateRangeText: {
-      fontSize: 12,
-      color: colors.textSecondary,
-      textAlign: "center",
-      marginBottom: 10,
-    },
-    selectedPointContainer: {
-      position: "absolute",
-      top: 10,
-      left: 0,
-      right: 0,
-      flexDirection: "row",
-      justifyContent: "space-between",
-      paddingHorizontal: 15,
-    },
-    selectedPointValue: {
       fontSize: 14,
+    },
+    loaderContainer: {
+      justifyContent: "center",
+      alignItems: "center",
+      height: 250,
+    },
+    noDataContainer: {
+      height: 250,
+      justifyContent: "center",
+      alignItems: "center",
+      padding: 20,
+    },
+    noDataIcon: {
+      marginBottom: 12,
+    },
+    noDataTitle: {
+      fontSize: 16,
       fontWeight: "bold",
       color: colors.text,
-    },
-    selectedPointDate: {
-      fontSize: 12,
-      color: colors.textSecondary,
-    },
-    axisLabel: {
-      position: "absolute",
-      backgroundColor: isDarkMode
-        ? "rgba(30, 30, 30, 0.8)"
-        : "rgba(255, 255, 255, 0.8)",
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 4,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    topAxisLabel: {
-      top: 5,
-      right: 10,
-    },
-    bottomAxisLabel: {
-      bottom: 5,
-      left: 10,
-    },
-    axisLabelText: {
-      fontSize: 10,
-      fontWeight: "bold",
-      color: colors.text,
-    },
-    axisValueText: {
-      fontSize: 12,
-      fontWeight: "bold",
-      color: colors.primary,
+      marginBottom: 8,
     },
     noDataText: {
       fontSize: 14,
       color: colors.textSecondary,
       textAlign: "center",
-      marginVertical: 20,
+      lineHeight: 20,
+    },
+    chartWrapper: {
+      borderRadius: 16,
+      overflow: "hidden",
     },
   });
 
-  // Axis label component
-  const AxisLabel = ({ position, value, timestamp }) => {
-    if (!timestamp) return null;
-
-    return (
-      <View
-        style={[
-          themedStyles.axisLabel,
-          position === "top"
-            ? themedStyles.topAxisLabel
-            : themedStyles.bottomAxisLabel,
-        ]}
-      >
-        <Text style={themedStyles.axisValueText}>
-          {formatValue(value)} {getUnit(param)}
-        </Text>
-        <Text style={themedStyles.axisLabelText}>
-          {formatDate(new Date(timestamp))}
-        </Text>
-      </View>
-    );
-  };
-
-  // Custom selection dot component
-  const SelectionDot = () => (
-    <View
-      style={{
-        width: 12,
-        height: 12,
-        borderRadius: 6,
-        backgroundColor: colors.background,
-        borderWidth: 2,
-        borderColor: colors.primary,
-      }}
-    />
-  );
-
-  // Render the graph only if we have valid points
-  const renderGraph = () => {
-    // Safe check to ensure points array is valid and has at least 2 points
-    if (!points || !Array.isArray(points) || points.length < 2) {
-      return (
-        <Text style={themedStyles.noDataText}>
-          No data available for the selected time period
-        </Text>
-      );
-    }
-
-    // Additional safety check for invalid points
-    const validPoints = points.filter(
-      (p) =>
-        p &&
-        typeof p.x === "number" &&
-        !isNaN(p.x) &&
-        typeof p.y === "number" &&
-        !isNaN(p.y)
-    );
-
-    if (validPoints.length < 2) {
-      return (
-        <Text style={themedStyles.noDataText}>
-          Insufficient valid data points for the selected time period
-        </Text>
-      );
-    }
-
-    return (
-      <>
-        <LineGraph
-          points={validPoints}
-          animated={true}
-          color={colors.primary}
-          style={{ width: width - 40, height: 220 }}
-          enablePanGesture={true}
-          onPointSelected={handlePointSelected}
-          onGestureEnd={handleGestureEnd}
-          SelectionDot={SelectionDot}
-          TopAxisLabel={
-            maxPoint && maxPoint.timestamp
-              ? () => (
-                  <AxisLabel
-                    position="top"
-                    value={maxPoint.y}
-                    timestamp={maxPoint.timestamp}
-                  />
-                )
-              : undefined
-          }
-          BottomAxisLabel={
-            minPoint && minPoint.timestamp
-              ? () => (
-                  <AxisLabel
-                    position="bottom"
-                    value={minPoint.y}
-                    timestamp={minPoint.timestamp}
-                  />
-                )
-              : undefined
-          }
-        />
-
-        {selectedPoint && (
-          <View style={themedStyles.selectedPointContainer}>
-            <View>
-              <Text style={themedStyles.selectedPointValue}>
-                {formatValue(selectedPoint.y)} {getUnit(param)}
-              </Text>
-            </View>
-            <View>
-              <Text style={themedStyles.selectedPointDate}>
-                {formatDate(new Date(selectedPoint.x))}
-              </Text>
-            </View>
-          </View>
-        )}
-      </>
-    );
-  };
-
   return (
-    <ScrollView style={themedStyles.container}>
-      <Text style={themedStyles.paramTitle}>
-        {formatParamName(param)} History
-      </Text>
-      <Text style={themedStyles.dateRangeText}>
-        {formatDate(dateRange.startDate, "custom")} -{" "}
-        {formatDate(dateRange.endDate, "custom")}
-      </Text>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
 
-      <View style={themedStyles.graphContainer}>
-        {isLoading ? (
-          <View style={themedStyles.loaderContainer}>
-            <ActivityIndicator size="large" color={colors.primary} />
-          </View>
-        ) : (
-          renderGraph()
-        )}
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={styles.title}>{formatParamName(param)}</Text>
       </View>
 
-      <View style={themedStyles.filterContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {["1d", "1w", "1m", "3m"].map((timeframe) => (
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.contentContainer}
+      >
+        <View style={styles.titleContainer}>
+          <Text style={styles.dateRange}>
+            {formatDate(dateRange.startDate, "custom")} -{" "}
+            {formatDate(dateRange.endDate, "custom")}
+          </Text>
+        </View>
+
+        <View style={styles.timeframeContainer}>
+          {["1d", "1w", "1m"].map((tf) => (
             <TouchableOpacity
-              key={timeframe}
+              key={tf}
               style={[
-                themedStyles.timeframeButton,
-                dataTimeframe === timeframe
-                  ? themedStyles.timeframeButtonActive
-                  : themedStyles.timeframeButtonInactive,
+                styles.timeframeButton,
+                timeframe === tf
+                  ? styles.timeframeButtonActive
+                  : styles.timeframeButtonInactive,
               ]}
-              onPress={() => setTimeframe(timeframe)}
+              onPress={() => handleTimeframeChange(tf)}
               disabled={isLoading}
             >
               <Text
                 style={[
-                  themedStyles.timeframeText,
-                  dataTimeframe === timeframe
-                    ? themedStyles.timeframeTextActive
-                    : themedStyles.timeframeTextInactive,
+                  styles.timeframeText,
+                  timeframe === tf
+                    ? styles.timeframeTextActive
+                    : styles.timeframeTextInactive,
                 ]}
               >
-                {timeframe === "1d"
-                  ? "1 Day"
-                  : timeframe === "1w"
-                  ? "1 Week"
-                  : timeframe === "1m"
-                  ? "1 Month"
-                  : "3 Months"}
+                {tf === "1d" ? "1 Day" : tf === "1w" ? "1 Week" : "1 Month"}
               </Text>
             </TouchableOpacity>
           ))}
 
           <TouchableOpacity
-            style={themedStyles.customDateButton}
+            style={styles.customDateButton}
             onPress={() => showDatePickerModal("start")}
             disabled={isLoading}
           >
             <Ionicons name="calendar-outline" size={14} color={colors.text} />
-            <Text style={themedStyles.customDateText}>Custom Range</Text>
+            <Text style={styles.customDateText}>Custom</Text>
           </TouchableOpacity>
-        </ScrollView>
-      </View>
+        </View>
 
-      <View style={themedStyles.stats}>
-        <View style={themedStyles.statsRow}>
-          <Text style={themedStyles.statLabel}>Average</Text>
-          <Text style={themedStyles.statValue}>
-            {stats.average} {getUnit(param)}
-          </Text>
-        </View>
-        <View style={themedStyles.statsRow}>
-          <Text style={themedStyles.statLabel}>Highest</Text>
-          <Text style={themedStyles.statValue}>
-            {stats.highest} {getUnit(param)}
-          </Text>
-        </View>
-        <View style={themedStyles.statsRow}>
-          <Text style={themedStyles.statLabel}>Lowest</Text>
-          <Text style={themedStyles.statValue}>
-            {stats.lowest} {getUnit(param)}
-          </Text>
-        </View>
-      </View>
+        {selectedPoint && (
+          <View style={styles.selectedPointContainer}>
+            <Text style={styles.selectedPointValue}>
+              {formatValue(selectedPoint.value)}
+            </Text>
+            <Text style={styles.selectedPointDate}>
+              {formatDate(selectedPoint.timestamp)}
+            </Text>
+          </View>
+        )}
 
-      {showDatePicker && (
-        <DateTimePicker
-          value={
-            datePickerType === "start" ? dateRange.startDate : dateRange.endDate
-          }
-          mode="date"
-          display={Platform.OS === "ios" ? "spinner" : "default"}
-          onChange={onDateChange}
-          style={{ backgroundColor: colors.card }}
-          textColor={colors.text}
-        />
-      )}
-    </ScrollView>
+        <View style={styles.chartCard}>
+          {isLoading ? (
+            <View style={styles.loaderContainer}>
+              <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+          ) : chartData.datasets[0].data.length < 2 ? (
+            <NoDataView />
+          ) : (
+            <View style={styles.chartWrapper}>
+              <LineChart
+                data={chartData}
+                width={width - 32}
+                height={260}
+                chartConfig={chartConfig}
+                bezier
+                style={{
+                  borderRadius: 16,
+                }}
+                withShadow={true}
+                withDots={false}
+                withInnerLines={true}
+                withOuterLines={false}
+                withVerticalLabels={true}
+                withHorizontalLabels={true}
+                withVerticalLines={false}
+                withHorizontalLines={true}
+                yAxisLabel=""
+                yAxisSuffix={` ${getUnit(param)}`}
+                onDataPointClick={handleChartTouch}
+                fromZero={false}
+                segments={5}
+              />
+            </View>
+          )}
+        </View>
+
+        <Card style={styles.card}>
+          <View style={styles.statsRow}>
+            <Text style={styles.statsLabel}>Average</Text>
+            <Text style={styles.statsValue}>
+              {isLoading ? "..." : `${stats.average} ${getUnit(param)}`}
+            </Text>
+          </View>
+          <View style={styles.statsRow}>
+            <Text style={styles.statsLabel}>Highest</Text>
+            <Text style={styles.statsValue}>
+              {isLoading ? "..." : `${stats.max} ${getUnit(param)}`}
+            </Text>
+          </View>
+          <View style={[styles.statsRow, styles.statsLastRow]}>
+            <Text style={styles.statsLabel}>Lowest</Text>
+            <Text style={styles.statsValue}>
+              {isLoading ? "..." : `${stats.min} ${getUnit(param)}`}
+            </Text>
+          </View>
+        </Card>
+
+        {showDatePicker && (
+          <DateTimePicker
+            value={
+              datePickerType === "start"
+                ? dateRange.startDate
+                : dateRange.endDate
+            }
+            mode="date"
+            display={Platform.OS === "ios" ? "spinner" : "default"}
+            onChange={onDateChange}
+            style={{ backgroundColor: colors.card }}
+            textColor={colors.text}
+          />
+        )}
+      </ScrollView>
+    </View>
   );
 }
