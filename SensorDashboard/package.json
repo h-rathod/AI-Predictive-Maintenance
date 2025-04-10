@@ -40,7 +40,9 @@
     "react-native-svg": "15.8.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.20.0"
+    "@babel/core": "^7.20.0",
+    "@babel/plugin-proposal-export-namespace-from": "^7.18.9",
+    "react-native-dotenv": "^3.4.11"
   },
   "private": true
 }

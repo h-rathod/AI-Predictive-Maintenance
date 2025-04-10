@@ -55,37 +55,59 @@ export default function Graph() {
 
   // Fetch historical data from Supabase
   const fetchHistoricalData = async () => {
-    // Get data from the last 30 days
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    try {
+      // Get data from the last 30 days
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const { data, error } = await supabase
-      .from("sensor_data")
-      .select(`timestamp, ${param}`)
-      .gte("timestamp", thirtyDaysAgo.toISOString())
-      .order("timestamp", { ascending: true });
+      const { data, error } = await supabase
+        .from("sensor_data")
+        .select(`timestamp, ${param}`)
+        .gte("timestamp", thirtyDaysAgo.toISOString())
+        .order("timestamp", { ascending: true });
 
-    if (error) {
-      console.error("Error fetching historical data:", error);
-    } else {
-      setHistoricalData(data || []);
+      if (error) {
+        console.error("Error fetching historical data:", error);
+        return;
+      }
+
+      // Ensure data is valid and has the required fields
+      const validData = (data || []).filter(
+        (item) =>
+          item &&
+          item.timestamp &&
+          item[param] !== undefined &&
+          item[param] !== null
+      );
+
+      setHistoricalData(validData);
+    } catch (err) {
+      console.error("Failed to fetch data:", err);
+      setHistoricalData([]);
     }
   };
 
   // Filter data based on selected date range
   const applyDateFilter = () => {
-    // Adjust dates to include the full day
-    const startDate = new Date(dateRange.startDate);
-    startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date(dateRange.endDate);
-    endDate.setHours(23, 59, 59, 999);
+    try {
+      // Adjust dates to include the full day
+      const startDate = new Date(dateRange.startDate);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(dateRange.endDate);
+      endDate.setHours(23, 59, 59, 999);
 
-    const filtered = historicalData.filter((item) => {
-      const itemDate = new Date(item.timestamp);
-      return itemDate >= startDate && itemDate <= endDate;
-    });
+      const filtered = historicalData.filter((item) => {
+        if (!item || !item.timestamp) return false;
 
-    setFilteredData(filtered);
+        const itemDate = new Date(item.timestamp);
+        return itemDate >= startDate && itemDate <= endDate;
+      });
+
+      setFilteredData(filtered);
+    } catch (err) {
+      console.error("Error filtering data:", err);
+      setFilteredData([]);
+    }
   };
 
   // Calculate statistics from filtered data
@@ -95,17 +117,32 @@ export default function Graph() {
       return;
     }
 
-    const values = filteredData.map((item) => item[param] || 0);
-    const sum = values.reduce((a, b) => a + b, 0);
-    const average = sum / values.length;
-    const highest = Math.max(...values);
-    const lowest = Math.min(...values);
+    try {
+      const values = filteredData
+        .filter(
+          (item) => item && item[param] !== undefined && item[param] !== null
+        )
+        .map((item) => parseFloat(item[param]) || 0);
 
-    setStats({
-      average: parseFloat(average.toFixed(2)),
-      highest: parseFloat(highest.toFixed(2)),
-      lowest: parseFloat(lowest.toFixed(2)),
-    });
+      if (values.length === 0) {
+        setStats({ average: 0, highest: 0, lowest: 0 });
+        return;
+      }
+
+      const sum = values.reduce((a, b) => a + b, 0);
+      const average = sum / values.length;
+      const highest = Math.max(...values);
+      const lowest = Math.min(...values);
+
+      setStats({
+        average: parseFloat(average.toFixed(2)),
+        highest: parseFloat(highest.toFixed(2)),
+        lowest: parseFloat(lowest.toFixed(2)),
+      });
+    } catch (err) {
+      console.error("Error calculating stats:", err);
+      setStats({ average: 0, highest: 0, lowest: 0 });
+    }
   };
 
   // Set the time frame for displaying data
@@ -226,16 +263,21 @@ export default function Graph() {
   const formatDate = (date, timeframe = dataTimeframe) => {
     if (!date) return "";
 
-    switch (timeframe) {
-      case "1d":
-        return format(date, "h:mm a"); // Hour:Minute AM/PM
-      case "1w":
-        return format(date, "EEE, MMM d"); // Tue, Jun 7
-      case "1m":
-      case "3m":
-        return format(date, "MMM d"); // Jun 7
-      default:
-        return format(date, "MMM d, yyyy"); // Jun 7, 2023
+    try {
+      switch (timeframe) {
+        case "1d":
+          return format(date, "h:mm a"); // Hour:Minute AM/PM
+        case "1w":
+          return format(date, "EEE, MMM d"); // Tue, Jun 7
+        case "1m":
+        case "3m":
+          return format(date, "MMM d"); // Jun 7
+        default:
+          return format(date, "MMM d, yyyy"); // Jun 7, 2023
+      }
+    } catch (err) {
+      console.error("Error formatting date:", err);
+      return "";
     }
   };
 
@@ -249,32 +291,66 @@ export default function Graph() {
   const points = useMemo(() => {
     if (!filteredData.length) return [];
 
-    return filteredData.map((item) => ({
-      x: new Date(item.timestamp).getTime(),
-      y: parseFloat(item[param]) || 0,
-      timestamp: item.timestamp,
-      value: parseFloat(item[param]) || 0,
-    }));
+    try {
+      const validPoints = filteredData
+        .filter(
+          (item) =>
+            item &&
+            item.timestamp &&
+            item[param] !== undefined &&
+            item[param] !== null
+        )
+        .map((item) => {
+          const timestamp = new Date(item.timestamp);
+
+          if (isNaN(timestamp.getTime())) {
+            // Skip invalid timestamps
+            return null;
+          }
+
+          return {
+            x: timestamp.getTime(),
+            y: parseFloat(item[param]) || 0,
+            timestamp: item.timestamp,
+            value: parseFloat(item[param]) || 0,
+          };
+        })
+        .filter((point) => point !== null); // Remove any nulls
+
+      return validPoints;
+    } catch (err) {
+      console.error("Error preparing points:", err);
+      return [];
+    }
   }, [filteredData, param]);
 
   // Find max and min points for axis labels
   const { maxPoint, minPoint } = useMemo(() => {
     if (!points.length) return { maxPoint: null, minPoint: null };
 
-    let max = points[0];
-    let min = points[0];
+    try {
+      let max = points[0];
+      let min = points[0];
 
-    points.forEach((point) => {
-      if (point.y > max.y) max = point;
-      if (point.y < min.y) min = point;
-    });
+      points.forEach((point) => {
+        if (!point) return;
 
-    return { maxPoint: max, minPoint: min };
+        if (point.y > max.y) max = point;
+        if (point.y < min.y) min = point;
+      });
+
+      return { maxPoint: max, minPoint: min };
+    } catch (err) {
+      console.error("Error finding max/min points:", err);
+      return { maxPoint: null, minPoint: null };
+    }
   }, [points]);
 
   // Handle point selection during pan gesture
   const handlePointSelected = useCallback((point) => {
-    setSelectedPoint(point);
+    if (point && point.x && !isNaN(point.x)) {
+      setSelectedPoint(point);
+    }
   }, []);
 
   // Reset selected point when gesture ends
@@ -439,6 +515,8 @@ export default function Graph() {
 
   // Axis label component
   const AxisLabel = ({ position, value, timestamp }) => {
+    if (!timestamp) return null;
+
     return (
       <View
         style={[
@@ -495,7 +573,7 @@ export default function Graph() {
               onGestureEnd={handleGestureEnd}
               SelectionDot={SelectionDot}
               TopAxisLabel={
-                maxPoint
+                maxPoint && maxPoint.timestamp
                   ? () => (
                       <AxisLabel
                         position="top"
@@ -506,7 +584,7 @@ export default function Graph() {
                   : undefined
               }
               BottomAxisLabel={
-                minPoint
+                minPoint && minPoint.timestamp
                   ? () => (
                       <AxisLabel
                         position="bottom"
