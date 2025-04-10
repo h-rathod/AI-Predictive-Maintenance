@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ScrollView,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { LineGraph } from "react-native-graph";
 import { Card, Title, Portal, Provider } from "react-native-paper";
@@ -33,6 +34,7 @@ export default function Graph() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [datePickerType, setDatePickerType] = useState("start");
   const [dataTimeframe, setDataTimeframe] = useState("1w"); // Default to 1 week
+  const [isLoading, setIsLoading] = useState(false);
 
   // New state for point selection
   const [selectedPoint, setSelectedPoint] = useState(null);
@@ -56,6 +58,7 @@ export default function Graph() {
   // Fetch historical data from Supabase
   const fetchHistoricalData = async () => {
     try {
+      setIsLoading(true);
       // Get data from the last 30 days
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -68,6 +71,7 @@ export default function Graph() {
 
       if (error) {
         console.error("Error fetching historical data:", error);
+        setIsLoading(false);
         return;
       }
 
@@ -81,15 +85,18 @@ export default function Graph() {
       );
 
       setHistoricalData(validData);
+      setIsLoading(false);
     } catch (err) {
       console.error("Failed to fetch data:", err);
       setHistoricalData([]);
+      setIsLoading(false);
     }
   };
 
   // Filter data based on selected date range
   const applyDateFilter = () => {
     try {
+      setIsLoading(true);
       // Adjust dates to include the full day
       const startDate = new Date(dateRange.startDate);
       startDate.setHours(0, 0, 0, 0);
@@ -104,9 +111,11 @@ export default function Graph() {
       });
 
       setFilteredData(filtered);
+      setIsLoading(false);
     } catch (err) {
       console.error("Error filtering data:", err);
       setFilteredData([]);
+      setIsLoading(false);
     }
   };
 
@@ -147,7 +156,15 @@ export default function Graph() {
 
   // Set the time frame for displaying data
   const setTimeframe = (timeframe) => {
+    // Set loading state to true when changing timeframe
+    setIsLoading(true);
+
+    // Clear existing points and selected point to prevent stale data
+    setSelectedPoint(null);
+
+    // Update timeframe state
     setDataTimeframe(timeframe);
+
     const now = new Date();
     let startDate = new Date();
 
@@ -165,9 +182,11 @@ export default function Graph() {
         startDate.setMonth(now.getMonth() - 3);
         break;
       default:
+        setIsLoading(false);
         return; // For custom, don't change the date range
     }
 
+    // Update date range (this will trigger applyDateFilter in the useEffect)
     setDateRange({
       startDate,
       endDate: now,
@@ -289,35 +308,44 @@ export default function Graph() {
 
   // Prepare points for LineGraph
   const points = useMemo(() => {
-    if (!filteredData.length) return [];
+    if (!filteredData || !filteredData.length) return [];
 
     try {
-      const validPoints = filteredData
-        .filter(
-          (item) =>
-            item &&
-            item.timestamp &&
-            item[param] !== undefined &&
-            item[param] !== null
-        )
-        .map((item) => {
-          const timestamp = new Date(item.timestamp);
+      // First, create a deep copy of filtered data to avoid any reference issues
+      const validItems = [...filteredData].filter(
+        (item) =>
+          item &&
+          item.timestamp &&
+          item[param] !== undefined &&
+          item[param] !== null
+      );
 
-          if (isNaN(timestamp.getTime())) {
-            // Skip invalid timestamps
+      if (!validItems.length) return [];
+
+      // Map to the format expected by the LineGraph component
+      return validItems
+        .map((item) => {
+          try {
+            const timestamp = new Date(item.timestamp);
+
+            // Safety check for invalid timestamps
+            if (isNaN(timestamp.getTime())) {
+              console.warn("Invalid timestamp detected:", item.timestamp);
+              return null;
+            }
+
+            return {
+              x: timestamp.getTime(),
+              y: parseFloat(item[param]) || 0,
+              timestamp: item.timestamp,
+              value: parseFloat(item[param]) || 0,
+            };
+          } catch (err) {
+            console.warn("Error processing data point:", err);
             return null;
           }
-
-          return {
-            x: timestamp.getTime(),
-            y: parseFloat(item[param]) || 0,
-            timestamp: item.timestamp,
-            value: parseFloat(item[param]) || 0,
-          };
         })
-        .filter((point) => point !== null); // Remove any nulls
-
-      return validPoints;
+        .filter((point) => point !== null); // Filter out any null points
     } catch (err) {
       console.error("Error preparing points:", err);
       return [];
@@ -326,7 +354,7 @@ export default function Graph() {
 
   // Find max and min points for axis labels
   const { maxPoint, minPoint } = useMemo(() => {
-    if (!points.length) return { maxPoint: null, minPoint: null };
+    if (!points || !points.length) return { maxPoint: null, minPoint: null };
 
     try {
       let max = points[0];
@@ -375,7 +403,20 @@ export default function Graph() {
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: "center",
+      justifyContent: "center",
       height: 280, // Fixed height for the graph
+    },
+    loaderContainer: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      justifyContent: "center",
+      alignItems: "center",
+      backgroundColor: colors.card + "80", // Semi-transparent
+      zIndex: 10,
+      borderRadius: 16,
     },
     filterContainer: {
       flexDirection: "row",
@@ -550,6 +591,88 @@ export default function Graph() {
     />
   );
 
+  // Render the graph only if we have valid points
+  const renderGraph = () => {
+    // Safe check to ensure points array is valid and has at least 2 points
+    if (!points || !Array.isArray(points) || points.length < 2) {
+      return (
+        <Text style={themedStyles.noDataText}>
+          No data available for the selected time period
+        </Text>
+      );
+    }
+
+    // Additional safety check for invalid points
+    const validPoints = points.filter(
+      (p) =>
+        p &&
+        typeof p.x === "number" &&
+        !isNaN(p.x) &&
+        typeof p.y === "number" &&
+        !isNaN(p.y)
+    );
+
+    if (validPoints.length < 2) {
+      return (
+        <Text style={themedStyles.noDataText}>
+          Insufficient valid data points for the selected time period
+        </Text>
+      );
+    }
+
+    return (
+      <>
+        <LineGraph
+          points={validPoints}
+          animated={true}
+          color={colors.primary}
+          style={{ width: width - 40, height: 220 }}
+          enablePanGesture={true}
+          onPointSelected={handlePointSelected}
+          onGestureEnd={handleGestureEnd}
+          SelectionDot={SelectionDot}
+          TopAxisLabel={
+            maxPoint && maxPoint.timestamp
+              ? () => (
+                  <AxisLabel
+                    position="top"
+                    value={maxPoint.y}
+                    timestamp={maxPoint.timestamp}
+                  />
+                )
+              : undefined
+          }
+          BottomAxisLabel={
+            minPoint && minPoint.timestamp
+              ? () => (
+                  <AxisLabel
+                    position="bottom"
+                    value={minPoint.y}
+                    timestamp={minPoint.timestamp}
+                  />
+                )
+              : undefined
+          }
+        />
+
+        {selectedPoint && (
+          <View style={themedStyles.selectedPointContainer}>
+            <View>
+              <Text style={themedStyles.selectedPointValue}>
+                {formatValue(selectedPoint.y)} {getUnit(param)}
+              </Text>
+            </View>
+            <View>
+              <Text style={themedStyles.selectedPointDate}>
+                {formatDate(new Date(selectedPoint.x))}
+              </Text>
+            </View>
+          </View>
+        )}
+      </>
+    );
+  };
+
   return (
     <ScrollView style={themedStyles.container}>
       <Text style={themedStyles.paramTitle}>
@@ -561,60 +684,12 @@ export default function Graph() {
       </Text>
 
       <View style={themedStyles.graphContainer}>
-        {points.length > 1 ? (
-          <>
-            <LineGraph
-              points={points}
-              animated={true}
-              color={colors.primary}
-              style={{ width: width - 40, height: 220 }}
-              enablePanGesture={true}
-              onPointSelected={handlePointSelected}
-              onGestureEnd={handleGestureEnd}
-              SelectionDot={SelectionDot}
-              TopAxisLabel={
-                maxPoint && maxPoint.timestamp
-                  ? () => (
-                      <AxisLabel
-                        position="top"
-                        value={maxPoint.y}
-                        timestamp={maxPoint.timestamp}
-                      />
-                    )
-                  : undefined
-              }
-              BottomAxisLabel={
-                minPoint && minPoint.timestamp
-                  ? () => (
-                      <AxisLabel
-                        position="bottom"
-                        value={minPoint.y}
-                        timestamp={minPoint.timestamp}
-                      />
-                    )
-                  : undefined
-              }
-            />
-
-            {selectedPoint && (
-              <View style={themedStyles.selectedPointContainer}>
-                <View>
-                  <Text style={themedStyles.selectedPointValue}>
-                    {formatValue(selectedPoint.y)} {getUnit(param)}
-                  </Text>
-                </View>
-                <View>
-                  <Text style={themedStyles.selectedPointDate}>
-                    {formatDate(new Date(selectedPoint.x))}
-                  </Text>
-                </View>
-              </View>
-            )}
-          </>
+        {isLoading ? (
+          <View style={themedStyles.loaderContainer}>
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
         ) : (
-          <Text style={themedStyles.noDataText}>
-            No data available for the selected time period
-          </Text>
+          renderGraph()
         )}
       </View>
 
@@ -630,6 +705,7 @@ export default function Graph() {
                   : themedStyles.timeframeButtonInactive,
               ]}
               onPress={() => setTimeframe(timeframe)}
+              disabled={isLoading}
             >
               <Text
                 style={[
@@ -653,6 +729,7 @@ export default function Graph() {
           <TouchableOpacity
             style={themedStyles.customDateButton}
             onPress={() => showDatePickerModal("start")}
+            disabled={isLoading}
           >
             <Ionicons name="calendar-outline" size={14} color={colors.text} />
             <Text style={themedStyles.customDateText}>Custom Range</Text>
