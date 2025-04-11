@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -6,189 +6,185 @@ import {
   Dimensions,
   TouchableOpacity,
   ScrollView,
+  ActivityIndicator,
   Platform,
+  StatusBar,
 } from "react-native";
-import { LineChart } from "react-native-chart-kit";
-import {
-  Button,
-  Card,
-  Title,
-  Divider,
-  Modal,
-  Portal,
-  Provider,
-} from "react-native-paper";
+import { useRoute, useNavigation } from "@react-navigation/native";
+import { Card } from "react-native-paper";
 import { supabase } from "../utils/supabase";
-import { useRoute } from "@react-navigation/native";
-import DateTimePicker from "@react-native-community/datetimepicker";
-import { CHART_CONFIG } from "../utils/theme";
 import { useTheme } from "../utils/ThemeContext";
+import { format, subDays, subWeeks, subMonths } from "date-fns";
+import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { LineChart } from "react-native-chart-kit";
 
 const { width } = Dimensions.get("window");
 
 export default function Graph() {
   const { colors, isDarkMode } = useTheme();
   const route = useRoute();
+  const navigation = useNavigation();
   const { param } = route.params;
-  const [historicalData, setHistoricalData] = useState([]);
+
+  // State variables
+  const [data, setData] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
-  const [reducedData, setReducedData] = useState([]);
-  const [stats, setStats] = useState({ average: 0, highest: 0, lowest: 0 });
+  const [isLoading, setIsLoading] = useState(true);
+  const [timeframe, setTimeframe] = useState("1w");
+  const [selectedPoint, setSelectedPoint] = useState(null);
+  const [stats, setStats] = useState({ average: 0, max: 0, min: 0 });
   const [dateRange, setDateRange] = useState({
-    startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // Default to 1 week ago
+    startDate: subWeeks(new Date(), 1),
     endDate: new Date(),
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [datePickerType, setDatePickerType] = useState("start");
-  const [dataTimeframe, setDataTimeframe] = useState("1w"); // Default to 1 week
-  const MAX_DISPLAY_POINTS = 15; // Maximum number of data points to display
 
+  // Fetch data when component mounts or param changes
   useEffect(() => {
-    fetchHistoricalData();
+    fetchData();
   }, [param]);
 
+  // Filter data when date range changes
   useEffect(() => {
-    if (historicalData.length > 0) {
-      applyDateFilter();
+    if (data.length > 0) {
+      filterDataByDateRange();
     }
-  }, [historicalData, dateRange]);
+  }, [data, dateRange]);
 
+  // Calculate stats when filtered data changes
   useEffect(() => {
-    if (filteredData.length > 0) {
-      reduceDataPoints();
-      calculateStats();
-    }
+    calculateStats();
   }, [filteredData]);
 
-  // Fetch historical data from Supabase
-  const fetchHistoricalData = async () => {
-    // Get data from the last 30 days
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  // Fetch data from Supabase
+  const fetchData = async () => {
+    try {
+      setIsLoading(true);
+      // Get data from the last 30 days
+      const thirtyDaysAgo = subDays(new Date(), 30);
 
-    const { data, error } = await supabase
-      .from("sensor_data")
-      .select(`timestamp, ${param}`)
-      .gte("timestamp", thirtyDaysAgo.toISOString())
-      .order("timestamp", { ascending: true });
+      const { data: responseData, error } = await supabase
+        .from("sensor_data")
+        .select(`timestamp, ${param}`)
+        .gte("timestamp", thirtyDaysAgo.toISOString())
+        .order("timestamp", { ascending: true });
 
-    if (error) {
-      console.error("Error fetching historical data:", error);
-    } else {
-      setHistoricalData(data || []);
+      if (error) {
+        console.error("Error fetching data:", error);
+        setIsLoading(false);
+        return;
+      }
+
+      // Validate data
+      const validData = (responseData || [])
+        .filter(
+          (item) =>
+            item &&
+            item.timestamp &&
+            item[param] !== undefined &&
+            item[param] !== null
+        )
+        .map((item) => {
+          try {
+            return {
+              timestamp: new Date(item.timestamp),
+              value: parseFloat(item[param]) || 0,
+              originalTimestamp: item.timestamp,
+            };
+          } catch (err) {
+            console.warn("Error processing data item:", err);
+            return null;
+          }
+        })
+        .filter((item) => item !== null);
+
+      console.log(`Fetched ${validData.length} valid data points`);
+      setData(validData);
+
+      // Set initial timeframe
+      handleTimeframeChange(timeframe);
+
+      setIsLoading(false);
+    } catch (err) {
+      console.error("Failed to fetch data:", err);
+      setData([]);
+      setIsLoading(false);
     }
   };
 
-  // Filter data based on selected date range
-  const applyDateFilter = () => {
-    // Adjust dates to include the full day
-    const startDate = new Date(dateRange.startDate);
-    startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date(dateRange.endDate);
-    endDate.setHours(23, 59, 59, 999);
+  // Filter data by date range
+  const filterDataByDateRange = () => {
+    try {
+      // Adjust dates to include the full day
+      const startDate = new Date(dateRange.startDate);
+      startDate.setHours(0, 0, 0, 0);
 
-    const filtered = historicalData.filter((item) => {
-      const itemDate = new Date(item.timestamp);
-      return itemDate >= startDate && itemDate <= endDate;
-    });
+      const endDate = new Date(dateRange.endDate);
+      endDate.setHours(23, 59, 59, 999);
 
-    setFilteredData(filtered);
+      const filtered = data.filter((item) => {
+        try {
+          return item.timestamp >= startDate && item.timestamp <= endDate;
+        } catch (err) {
+          return false;
+        }
+      });
+
+      console.log(`Filtered to ${filtered.length} data points`);
+      setFilteredData(filtered);
+    } catch (err) {
+      console.error("Error filtering data:", err);
+      setFilteredData([]);
+    }
   };
 
-  // Reduce the number of data points to prevent chart from being too crowded
-  const reduceDataPoints = () => {
-    if (filteredData.length <= MAX_DISPLAY_POINTS) {
-      setReducedData(filteredData);
-      return;
-    }
-
-    const step = Math.ceil(filteredData.length / MAX_DISPLAY_POINTS);
-    let reduced = [];
-
-    // Group data points and calculate averages
-    for (let i = 0; i < filteredData.length; i += step) {
-      const chunk = filteredData.slice(
-        i,
-        Math.min(i + step, filteredData.length)
-      );
-
-      if (chunk.length > 0) {
-        const sum = chunk.reduce((acc, item) => acc + (item[param] || 0), 0);
-        const avg = sum / chunk.length;
-
-        // Use the timestamp from the middle of the chunk for better representation
-        const middleIndex = Math.floor(chunk.length / 2);
-        reduced.push({
-          timestamp: chunk[middleIndex].timestamp,
-          [param]: parseFloat(avg.toFixed(2)),
-        });
-      }
-    }
-
-    // Always include the first and last data point for accurate range representation
-    if (reduced.length > 2 && filteredData.length > 2) {
-      // Check if first and last elements are already included
-      const firstTimestamp = filteredData[0].timestamp;
-      const lastTimestamp = filteredData[filteredData.length - 1].timestamp;
-
-      const hasFirst = reduced.some(
-        (item) => item.timestamp === firstTimestamp
-      );
-      const hasLast = reduced.some((item) => item.timestamp === lastTimestamp);
-
-      if (!hasFirst) {
-        reduced.unshift(filteredData[0]);
-      }
-
-      if (!hasLast) {
-        reduced.push(filteredData[filteredData.length - 1]);
-      }
-    }
-
-    setReducedData(reduced);
-  };
-
-  // Calculate statistics from filtered data
+  // Calculate statistics
   const calculateStats = () => {
-    if (filteredData.length === 0) {
-      setStats({ average: 0, highest: 0, lowest: 0 });
+    if (!filteredData || filteredData.length === 0) {
+      setStats({ average: 0, max: 0, min: 0 });
       return;
     }
 
-    const values = filteredData.map((item) => item[param] || 0);
-    const sum = values.reduce((a, b) => a + b, 0);
-    const average = sum / values.length;
-    const highest = Math.max(...values);
-    const lowest = Math.min(...values);
+    try {
+      const values = filteredData.map((item) => item.value);
+      const sum = values.reduce((a, b) => a + b, 0);
+      const average = sum / values.length;
+      const max = Math.max(...values);
+      const min = Math.min(...values);
 
-    setStats({
-      average: parseFloat(average.toFixed(2)),
-      highest: parseFloat(highest.toFixed(2)),
-      lowest: parseFloat(lowest.toFixed(2)),
-    });
+      setStats({
+        average: parseFloat(average.toFixed(2)),
+        max: parseFloat(max.toFixed(2)),
+        min: parseFloat(min.toFixed(2)),
+      });
+    } catch (err) {
+      console.error("Error calculating stats:", err);
+      setStats({ average: 0, max: 0, min: 0 });
+    }
   };
 
-  // Set the time frame for displaying data
-  const setTimeframe = (timeframe) => {
-    setDataTimeframe(timeframe);
-    const now = new Date();
-    let startDate = new Date();
+  // Handle timeframe button press
+  const handleTimeframeChange = (newTimeframe) => {
+    setTimeframe(newTimeframe);
+    setSelectedPoint(null);
 
-    switch (timeframe) {
+    const now = new Date();
+    let startDate;
+
+    switch (newTimeframe) {
       case "1d":
-        startDate.setDate(now.getDate() - 1);
+        startDate = subDays(now, 1);
         break;
       case "1w":
-        startDate.setDate(now.getDate() - 7);
+        startDate = subWeeks(now, 1);
         break;
       case "1m":
-        startDate.setMonth(now.getMonth() - 1);
-        break;
-      case "3m":
-        startDate.setMonth(now.getMonth() - 3);
+        startDate = subMonths(now, 1);
         break;
       default:
-        return; // For custom, don't change the date range
+        return;
     }
 
     setDateRange({
@@ -197,64 +193,29 @@ export default function Graph() {
     });
   };
 
-  // Handle date selection in date picker
-  const onDateChange = (event, selectedDate) => {
-    if (Platform.OS === "android") {
-      setShowDatePicker(false);
-    }
+  // Format date based on timeframe
+  const formatDate = (date, customTimeframe = timeframe) => {
+    if (!date) return "";
 
-    if (selectedDate) {
-      if (datePickerType === "start") {
-        // Check if selected start date is before end date
-        if (selectedDate <= dateRange.endDate) {
-          setDateRange((prev) => ({
-            ...prev,
-            startDate: selectedDate,
-          }));
-          if (Platform.OS === "ios") {
-            setDatePickerType("end");
-          } else {
-            // For Android, show the end date picker after selecting start date
-            setTimeout(() => {
-              showDatePickerModal("end");
-            }, 300);
-          }
-        } else {
-          // If selected start date is after end date, adjust end date
-          setDateRange({
-            startDate: selectedDate,
-            endDate: new Date(selectedDate.getTime() + 86400000), // next day
-          });
-        }
-      } else {
-        // Check if selected end date is after start date
-        if (selectedDate >= dateRange.startDate) {
-          setDateRange((prev) => ({
-            ...prev,
-            endDate: selectedDate,
-          }));
-        } else {
-          // If selected end date is before start date, adjust start date
-          setDateRange({
-            startDate: new Date(selectedDate.getTime() - 86400000), // previous day
-            endDate: selectedDate,
-          });
-        }
-        if (Platform.OS === "ios") {
-          setShowDatePicker(false);
-        }
+    try {
+      switch (customTimeframe) {
+        case "1d":
+          return format(date, "h:mm a");
+        case "1w":
+          return format(date, "EEE, MMM d");
+        case "1m":
+          return format(date, "MMM d");
+        default:
+          return format(date, "MMM d, yyyy");
       }
+    } catch (err) {
+      console.error("Error formatting date:", err);
+      return "";
     }
   };
 
-  // Show date picker modal
-  const showDatePickerModal = (type) => {
-    setDatePickerType(type);
-    setShowDatePicker(true);
-  };
-
-  // Get the appropriate unit for a parameter
-  const getUnit = (param) => {
+  // Get unit for the parameter
+  const getUnit = (paramName) => {
     const units = {
       evaporator_coil_temperature: "°C",
       freezer_temperature: "°C",
@@ -271,130 +232,277 @@ export default function Graph() {
       gas_leakage_level: "ppm",
       temperature_diff: "°C",
     };
-    return units[param] || "";
+    return units[paramName] || "";
   };
 
   // Format parameter name for display
-  const formatParamName = (param) => {
-    return param
+  const formatParamName = (paramName) => {
+    return paramName
       .split("_")
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(" ");
   };
 
-  // Format date for display
-  const formatDate = (date) => {
-    const options = { year: "numeric", month: "short", day: "numeric" };
-    return date.toLocaleDateString(undefined, options);
+  // Handle date picker
+  const onDateChange = (event, selectedDate) => {
+    if (Platform.OS === "android") {
+      setShowDatePicker(false);
+    }
+
+    if (selectedDate) {
+      if (datePickerType === "start") {
+        setDateRange((prev) => ({
+          ...prev,
+          startDate:
+            selectedDate <= prev.endDate ? selectedDate : prev.startDate,
+        }));
+
+        if (Platform.OS === "ios") {
+          setDatePickerType("end");
+        } else {
+          setTimeout(() => {
+            showDatePickerModal("end");
+          }, 300);
+        }
+      } else {
+        setDateRange((prev) => ({
+          ...prev,
+          endDate: selectedDate >= prev.startDate ? selectedDate : prev.endDate,
+        }));
+
+        if (Platform.OS === "ios") {
+          setShowDatePicker(false);
+        }
+      }
+    }
   };
 
-  // Format timestamp for display
-  const formatTimestamp = (timestamp) => {
-    const date = new Date(timestamp);
-    return formatDate(date);
+  // Show date picker modal
+  const showDatePickerModal = (type) => {
+    setDatePickerType(type);
+    setShowDatePicker(true);
   };
 
-  // Prepare chart data
-  const getChartData = () => {
-    if (reducedData.length === 0) {
+  // Format value with unit
+  const formatValue = (value) => {
+    if (value === undefined || value === null) return "-";
+    return `${value.toFixed(1)} ${getUnit(param)}`;
+  };
+
+  // Prepare chart data in chart-kit format
+  const chartData = useMemo(() => {
+    if (!filteredData || filteredData.length < 2) {
       return {
         labels: [],
-        datasets: [
-          {
-            data: [0],
-            color: () => colors.primary,
-            strokeWidth: 2,
-          },
-        ],
-        legend: ["No Data"],
+        datasets: [{ data: [] }],
       };
     }
 
-    const labels = reducedData.map((item) => formatTimestamp(item.timestamp));
-    const data = reducedData.map((item) => item[param] || 0);
+    try {
+      // For large datasets, limit to a reasonable number of data points for processing
+      let dataToUse = filteredData;
 
-    return {
-      labels: getLimitedLabels(labels),
-      datasets: [
-        {
-          data,
-          color: () => colors.primary,
-          strokeWidth: 2,
-        },
-      ],
-      legend: [formatParamName(param)],
-    };
+      // A reasonable limit for number of points to plot
+      const maxDataPoints = 100;
+
+      if (filteredData.length > maxDataPoints) {
+        const step = Math.ceil(filteredData.length / maxDataPoints);
+        dataToUse = [];
+
+        for (let i = 0; i < filteredData.length; i += step) {
+          if (i < filteredData.length) {
+            dataToUse.push(filteredData[i]);
+          }
+        }
+
+        // Always include the last point
+        if (
+          dataToUse.length > 0 &&
+          dataToUse[dataToUse.length - 1] !==
+            filteredData[filteredData.length - 1]
+        ) {
+          dataToUse.push(filteredData[filteredData.length - 1]);
+        }
+      }
+
+      // Now, limit the number of labels on the x-axis
+      // We'll show only a few labels based on the timeframe
+      let labelIndices = [];
+      const maxLabels = timeframe === "1d" ? 4 : timeframe === "1w" ? 5 : 6;
+
+      if (dataToUse.length <= maxLabels) {
+        // Show all labels if we have fewer data points than maxLabels
+        labelIndices = dataToUse.map((_, index) => index);
+      } else {
+        // Calculate indices for the labels we want to show
+        const step = Math.floor(dataToUse.length / (maxLabels - 1));
+
+        // Always show the first and last label
+        labelIndices.push(0);
+
+        // Add evenly spaced labels in between
+        for (let i = step; i < dataToUse.length - 1; i += step) {
+          if (labelIndices.length < maxLabels - 1) {
+            labelIndices.push(i);
+          }
+        }
+
+        // Add the last index
+        labelIndices.push(dataToUse.length - 1);
+      }
+
+      // Create labels array with empty strings for positions we don't want to show
+      const labels = dataToUse.map((_, index) =>
+        labelIndices.includes(index)
+          ? formatDate(dataToUse[index].timestamp)
+          : ""
+      );
+
+      return {
+        labels,
+        datasets: [
+          {
+            data: dataToUse.map((item) => item.value),
+            color: () => `rgba(0, 156, 255, 1)`, // Line color
+            strokeWidth: 2,
+          },
+        ],
+        // Store the raw data for reference
+        rawData: dataToUse,
+      };
+    } catch (err) {
+      console.error("Error preparing chart data:", err);
+      return { labels: [], datasets: [{ data: [] }] };
+    }
+  }, [filteredData, timeframe]);
+
+  // Component to show when no data is available
+  const NoDataView = () => (
+    <View style={styles.noDataContainer}>
+      <Ionicons
+        name="analytics-outline"
+        size={64}
+        color={colors.textSecondary}
+        style={styles.noDataIcon}
+      />
+      <Text style={styles.noDataTitle}>No Data Available</Text>
+      <Text style={styles.noDataText}>
+        There's no data available for the selected time period. Try selecting a
+        different time range.
+      </Text>
+    </View>
+  );
+
+  // Handle touch events on chart
+  const handleChartTouch = (data) => {
+    if (data && data.index !== undefined && chartData.rawData) {
+      const pointData = chartData.rawData[data.index];
+      if (pointData) {
+        setSelectedPoint({
+          value: pointData.value,
+          timestamp: pointData.timestamp,
+        });
+      }
+    }
   };
 
-  // Limit the number of labels shown on the X-axis to prevent overcrowding
-  const getLimitedLabels = (allLabels) => {
-    if (allLabels.length <= 5) return allLabels;
-
-    const result = [];
-    const step = Math.ceil(allLabels.length / 5);
-
-    for (let i = 0; i < allLabels.length; i += step) {
-      result.push(allLabels[i]);
-    }
-
-    // Always include the last label
-    if (result[result.length - 1] !== allLabels[allLabels.length - 1]) {
-      result.push(allLabels[allLabels.length - 1]);
-    }
-
-    return result;
-  };
-
-  // Apply custom chart config based on theme
-  const themedChartConfig = {
-    ...CHART_CONFIG,
-    backgroundColor: colors.chartBackground,
-    backgroundGradientFrom: colors.background,
-    backgroundGradientTo: colors.background,
-    color: (opacity = 1) => `rgba(14, 165, 233, ${opacity})`,
-    labelColor: (opacity = 1) =>
-      `rgba(${isDarkMode ? "255, 255, 255" : "0, 0, 0"}, ${opacity})`,
+  // Chart configuration
+  const chartConfig = {
+    backgroundColor: "transparent",
+    backgroundGradientFrom: isDarkMode ? "#001B36" : "#001F3F",
+    backgroundGradientTo: isDarkMode ? "#000814" : "#000C1F",
+    decimalPlaces: 1,
+    color: (opacity = 1) => `rgba(0, 156, 255, ${opacity})`,
+    labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
     propsForBackgroundLines: {
-      stroke: colors.chartGrid,
+      strokeDasharray: "", // Solid lines
+      stroke: "rgba(255, 255, 255, 0.1)", // Very subtle grid lines
       strokeWidth: 1,
-      strokeDasharray: "6, 6",
     },
-    propsForLabels: {
-      fontSize: 10,
-      fontWeight: "bold",
-      fill: colors.textSecondary,
+    propsForDots: {
+      r: "0", // Zero radius to hide dots
+      strokeWidth: "0",
     },
+    fillShadowGradient: "rgba(0, 156, 255, 1)",
+    fillShadowGradientOpacity: 0.3,
+    useShadowColorFromDataset: false,
   };
 
-  // Create theme-aware styles
-  const themedStyles = StyleSheet.create({
+  // Styles
+  const styles = StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: colors.background,
-      padding: 12,
-      paddingBottom: 80, // Add extra padding at the bottom to avoid navbar overlap
     },
-    graphContainer: {
-      marginTop: 10,
-      marginBottom: 20,
-      borderRadius: 16,
-      padding: 10,
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 16,
+      paddingTop: 12,
+      paddingBottom: 12,
+      backgroundColor: colors.background,
+    },
+    backButton: {
+      marginRight: 16,
+    },
+    titleContainer: {
+      alignItems: "center",
+      marginVertical: 20,
+    },
+    title: {
+      fontSize: 24,
+      fontWeight: "bold",
+      color: colors.text,
+      textAlign: "center",
+    },
+    dateRange: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      marginTop: 4,
+    },
+    contentContainer: {
+      flex: 1,
+      padding: 16,
+    },
+    card: {
       backgroundColor: colors.card,
+      borderRadius: 16,
+      padding: 16,
+      marginVertical: 12,
       borderWidth: 1,
       borderColor: colors.border,
-      alignItems: "center",
     },
-    filterContainer: {
+    chartCard: {
+      backgroundColor: "transparent",
+      borderRadius: 16,
+      marginVertical: 16,
+      overflow: "hidden",
+    },
+    selectedPointContainer: {
       flexDirection: "row",
       justifyContent: "space-between",
-      paddingHorizontal: 5,
-      marginBottom: 15,
+      marginBottom: 8,
+      paddingHorizontal: 16,
+    },
+    selectedPointValue: {
+      fontSize: 18,
+      fontWeight: "bold",
+      color: colors.text,
+    },
+    selectedPointDate: {
+      fontSize: 14,
+      color: colors.textSecondary,
+    },
+    timeframeContainer: {
+      flexDirection: "row",
+      justifyContent: "center",
+      marginVertical: 12,
     },
     timeframeButton: {
-      paddingVertical: 6,
-      paddingHorizontal: 12,
+      paddingVertical: 8,
+      paddingHorizontal: 16,
       borderRadius: 20,
-      marginRight: 8,
+      marginHorizontal: 4,
     },
     timeframeButtonActive: {
       backgroundColor: colors.primary,
@@ -417,209 +525,215 @@ export default function Graph() {
     customDateButton: {
       flexDirection: "row",
       alignItems: "center",
-      paddingVertical: 6,
-      paddingHorizontal: 12,
+      paddingVertical: 8,
+      paddingHorizontal: 16,
       borderRadius: 20,
       backgroundColor: isDarkMode ? colors.card : "#F1F5F9",
       borderWidth: 1,
       borderColor: colors.border,
+      marginLeft: 4,
     },
     customDateText: {
       fontSize: 12,
       fontWeight: "600",
       color: colors.text,
-      marginLeft: 5,
-    },
-    stats: {
-      marginBottom: 20,
-      padding: 15,
-      borderRadius: 12,
-      backgroundColor: colors.card,
-      borderWidth: 1,
-      borderColor: colors.border,
+      marginLeft: 4,
     },
     statsRow: {
       flexDirection: "row",
       justifyContent: "space-between",
-      marginBottom: 8,
+      paddingVertical: 8,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
     },
-    statLabel: {
-      fontSize: 14,
+    statsLastRow: {
+      borderBottomWidth: 0,
+    },
+    statsLabel: {
       color: colors.textSecondary,
-    },
-    statValue: {
       fontSize: 14,
+    },
+    statsValue: {
+      color: colors.text,
       fontWeight: "600",
-      color: colors.text,
-    },
-    paramTitle: {
-      fontSize: 18,
-      fontWeight: "bold",
-      color: colors.text,
-      marginBottom: 5,
-      textAlign: "center",
-    },
-    dateRangeText: {
-      fontSize: 12,
-      color: colors.textSecondary,
-      textAlign: "center",
-      marginBottom: 10,
-    },
-    modalContent: {
-      backgroundColor: colors.card,
-      borderRadius: 20,
-      padding: 20,
-      margin: 20,
-    },
-    modalTitle: {
-      fontSize: 18,
-      fontWeight: "bold",
-      color: colors.text,
-      marginBottom: 15,
-      textAlign: "center",
-    },
-    dateButton: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingVertical: 12,
-      paddingHorizontal: 15,
-      borderRadius: 10,
-      backgroundColor: isDarkMode ? "#2A2A2A" : "#F1F5F9",
-      marginVertical: 8,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    dateButtonText: {
       fontSize: 14,
+    },
+    loaderContainer: {
+      justifyContent: "center",
+      alignItems: "center",
+      height: 250,
+    },
+    noDataContainer: {
+      height: 250,
+      justifyContent: "center",
+      alignItems: "center",
+      padding: 20,
+    },
+    noDataIcon: {
+      marginBottom: 12,
+    },
+    noDataTitle: {
+      fontSize: 16,
+      fontWeight: "bold",
       color: colors.text,
-    },
-    buttonContainer: {
-      flexDirection: "row",
-      justifyContent: "flex-end",
-      marginTop: 15,
-    },
-    chart: {
-      marginVertical: 8,
-      borderRadius: 16,
+      marginBottom: 8,
     },
     noDataText: {
       fontSize: 14,
       color: colors.textSecondary,
       textAlign: "center",
-      marginVertical: 20,
+      lineHeight: 20,
+    },
+    chartWrapper: {
+      borderRadius: 16,
+      overflow: "hidden",
     },
   });
 
   return (
-    <ScrollView style={themedStyles.container}>
-      <Text style={themedStyles.paramTitle}>
-        {formatParamName(param)} History
-      </Text>
-      <Text style={themedStyles.dateRangeText}>
-        {formatDate(dateRange.startDate)} - {formatDate(dateRange.endDate)}
-      </Text>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
 
-      <View style={themedStyles.graphContainer}>
-        {reducedData.length > 1 ? (
-          <LineChart
-            data={getChartData()}
-            width={width - 50}
-            height={220}
-            chartConfig={themedChartConfig}
-            bezier
-            style={themedStyles.chart}
-            withDots={reducedData.length < 10}
-            withInnerLines={true}
-            withOuterLines={true}
-            withVerticalLines={true}
-            withHorizontalLines={true}
-            fromZero={
-              param === "gas_leakage_level" || param === "compressor_vibration"
-            }
-            yAxisInterval={5}
-          />
-        ) : (
-          <Text style={themedStyles.noDataText}>
-            No data available for the selected time period
-          </Text>
-        )}
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={styles.title}>{formatParamName(param)}</Text>
       </View>
 
-      <View style={themedStyles.filterContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {["1d", "1w", "1m", "3m"].map((timeframe) => (
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.contentContainer}
+      >
+        <View style={styles.titleContainer}>
+          <Text style={styles.dateRange}>
+            {formatDate(dateRange.startDate, "custom")} -{" "}
+            {formatDate(dateRange.endDate, "custom")}
+          </Text>
+        </View>
+
+        <View style={styles.timeframeContainer}>
+          {["1d", "1w", "1m"].map((tf) => (
             <TouchableOpacity
-              key={timeframe}
+              key={tf}
               style={[
-                themedStyles.timeframeButton,
-                dataTimeframe === timeframe
-                  ? themedStyles.timeframeButtonActive
-                  : themedStyles.timeframeButtonInactive,
+                styles.timeframeButton,
+                timeframe === tf
+                  ? styles.timeframeButtonActive
+                  : styles.timeframeButtonInactive,
               ]}
-              onPress={() => setTimeframe(timeframe)}
+              onPress={() => handleTimeframeChange(tf)}
+              disabled={isLoading}
             >
               <Text
                 style={[
-                  themedStyles.timeframeText,
-                  dataTimeframe === timeframe
-                    ? themedStyles.timeframeTextActive
-                    : themedStyles.timeframeTextInactive,
+                  styles.timeframeText,
+                  timeframe === tf
+                    ? styles.timeframeTextActive
+                    : styles.timeframeTextInactive,
                 ]}
               >
-                {timeframe === "1d"
-                  ? "1 Day"
-                  : timeframe === "1w"
-                  ? "1 Week"
-                  : timeframe === "1m"
-                  ? "1 Month"
-                  : "3 Months"}
+                {tf === "1d" ? "1 Day" : tf === "1w" ? "1 Week" : "1 Month"}
               </Text>
             </TouchableOpacity>
           ))}
 
           <TouchableOpacity
-            style={themedStyles.customDateButton}
+            style={styles.customDateButton}
             onPress={() => showDatePickerModal("start")}
+            disabled={isLoading}
           >
-            <Text style={themedStyles.customDateText}>Custom Range</Text>
+            <Ionicons name="calendar-outline" size={14} color={colors.text} />
+            <Text style={styles.customDateText}>Custom</Text>
           </TouchableOpacity>
-        </ScrollView>
-      </View>
+        </View>
 
-      <View style={themedStyles.stats}>
-        <View style={themedStyles.statsRow}>
-          <Text style={themedStyles.statLabel}>Average</Text>
-          <Text style={themedStyles.statValue}>
-            {stats.average} {getUnit(param)}
-          </Text>
-        </View>
-        <View style={themedStyles.statsRow}>
-          <Text style={themedStyles.statLabel}>Highest</Text>
-          <Text style={themedStyles.statValue}>
-            {stats.highest} {getUnit(param)}
-          </Text>
-        </View>
-        <View style={themedStyles.statsRow}>
-          <Text style={themedStyles.statLabel}>Lowest</Text>
-          <Text style={themedStyles.statValue}>
-            {stats.lowest} {getUnit(param)}
-          </Text>
-        </View>
-      </View>
+        {selectedPoint && (
+          <View style={styles.selectedPointContainer}>
+            <Text style={styles.selectedPointValue}>
+              {formatValue(selectedPoint.value)}
+            </Text>
+            <Text style={styles.selectedPointDate}>
+              {formatDate(selectedPoint.timestamp)}
+            </Text>
+          </View>
+        )}
 
-      {showDatePicker && (
-        <DateTimePicker
-          value={
-            datePickerType === "start" ? dateRange.startDate : dateRange.endDate
-          }
-          mode="date"
-          display={Platform.OS === "ios" ? "spinner" : "default"}
-          onChange={onDateChange}
-          style={{ backgroundColor: colors.card }}
-          textColor={colors.text}
-        />
-      )}
-    </ScrollView>
+        <View style={styles.chartCard}>
+          {isLoading ? (
+            <View style={styles.loaderContainer}>
+              <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+          ) : chartData.datasets[0].data.length < 2 ? (
+            <NoDataView />
+          ) : (
+            <View style={styles.chartWrapper}>
+              <LineChart
+                data={chartData}
+                width={width - 32}
+                height={260}
+                chartConfig={chartConfig}
+                bezier
+                style={{
+                  borderRadius: 16,
+                }}
+                withShadow={true}
+                withDots={false}
+                withInnerLines={true}
+                withOuterLines={false}
+                withVerticalLabels={true}
+                withHorizontalLabels={true}
+                withVerticalLines={false}
+                withHorizontalLines={true}
+                yAxisLabel=""
+                yAxisSuffix={` ${getUnit(param)}`}
+                onDataPointClick={handleChartTouch}
+                fromZero={false}
+                segments={5}
+              />
+            </View>
+          )}
+        </View>
+
+        <Card style={styles.card}>
+          <View style={styles.statsRow}>
+            <Text style={styles.statsLabel}>Average</Text>
+            <Text style={styles.statsValue}>
+              {isLoading ? "..." : `${stats.average} ${getUnit(param)}`}
+            </Text>
+          </View>
+          <View style={styles.statsRow}>
+            <Text style={styles.statsLabel}>Highest</Text>
+            <Text style={styles.statsValue}>
+              {isLoading ? "..." : `${stats.max} ${getUnit(param)}`}
+            </Text>
+          </View>
+          <View style={[styles.statsRow, styles.statsLastRow]}>
+            <Text style={styles.statsLabel}>Lowest</Text>
+            <Text style={styles.statsValue}>
+              {isLoading ? "..." : `${stats.min} ${getUnit(param)}`}
+            </Text>
+          </View>
+        </Card>
+
+        {showDatePicker && (
+          <DateTimePicker
+            value={
+              datePickerType === "start"
+                ? dateRange.startDate
+                : dateRange.endDate
+            }
+            mode="date"
+            display={Platform.OS === "ios" ? "spinner" : "default"}
+            onChange={onDateChange}
+            style={{ backgroundColor: colors.card }}
+            textColor={colors.text}
+          />
+        )}
+      </ScrollView>
+    </View>
   );
 }
