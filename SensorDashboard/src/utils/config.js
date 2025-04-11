@@ -5,30 +5,25 @@
  * Centralizing these values makes it easier to update them across the app.
  */
 
-import {
-  REACT_APP_BACKEND_URL,
-  REACT_APP_SUPABASE_URL,
-  REACT_APP_SUPABASE_ANON_KEY,
-} from "@env";
+import { BACKEND_URL, SUPABASE_URL, SUPABASE_ANON_KEY } from "@env";
 
 // Backend API URL
 // For local development, use your computer's IP address instead of localhost
 // In production, this should be set to your actual backend URL
-export const BACKEND_URL = REACT_APP_BACKEND_URL || "";
 
 // Supabase configuration
 // These values MUST be set in environment variables
-if (!REACT_APP_SUPABASE_URL) {
+if (!SUPABASE_URL) {
   console.error("Missing REACT_APP_SUPABASE_URL environment variable");
 }
 
-if (!REACT_APP_SUPABASE_ANON_KEY) {
+if (!SUPABASE_ANON_KEY) {
   console.error("Missing REACT_APP_SUPABASE_ANON_KEY environment variable");
 }
 
 export const SUPABASE_CONFIG = {
-  url: REACT_APP_SUPABASE_URL || "",
-  anonKey: REACT_APP_SUPABASE_ANON_KEY || "",
+  url: SUPABASE_URL || "",
+  anonKey: SUPABASE_ANON_KEY || "",
 };
 
 // Chart configuration
