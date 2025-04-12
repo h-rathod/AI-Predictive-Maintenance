@@ -26,7 +26,9 @@ const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 const AuthStack = createStackNavigator();
 
-// Auth stack
+// 🔧 Dev Mode Toggle
+const DEV_MODE = false; // Set to false to restore real login flow
+
 function AuthNavigation() {
   return (
     <AuthStack.Navigator screenOptions={{ headerShown: false }}>
@@ -37,7 +39,6 @@ function AuthNavigation() {
   );
 }
 
-// Dashboard stack
 function DashboardStack() {
   return (
     <Stack.Navigator
@@ -50,9 +51,7 @@ function DashboardStack() {
           borderBottomColor: COLORS.border,
         },
         headerTintColor: COLORS.text,
-        headerTitleStyle: {
-          fontWeight: "bold",
-        },
+        headerTitleStyle: { fontWeight: "bold" },
       }}
     >
       <Stack.Screen
@@ -60,41 +59,26 @@ function DashboardStack() {
         component={Dashboard}
         options={{ headerShown: false }}
       />
-      <Stack.Screen
-        name="Graph"
-        component={Graph}
-        options={({ route }) => ({
-          title: "Sensor Data",
-        })}
-      />
+      <Stack.Screen name="Graph" component={Graph} options={{ title: "Sensor Data" }} />
     </Stack.Navigator>
   );
 }
 
-// Main app with tab navigation
 function MainAppNavigation() {
   const { isDarkMode, colors } = useTheme();
   const [isKeyboardVisible, setKeyboardVisible] = useState(false);
 
   useEffect(() => {
-    const keyboardDidShowListener = Keyboard.addListener(
-      "keyboardDidShow",
-      () => setKeyboardVisible(true)
-    );
-    const keyboardDidHideListener = Keyboard.addListener(
-      "keyboardDidHide",
-      () => setKeyboardVisible(false)
-    );
+    const showListener = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
+    const hideListener = Keyboard.addListener("keyboardDidHide", () => setKeyboardVisible(false));
     return () => {
-      keyboardDidShowListener.remove();
-      keyboardDidHideListener.remove();
+      showListener.remove();
+      hideListener.remove();
     };
   }, []);
 
   return (
-    <SafeAreaView
-      style={[styles.container, { backgroundColor: colors.background }]}
-    >
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar
         barStyle={isDarkMode ? "light-content" : "dark-content"}
         backgroundColor={colors.background}
@@ -103,12 +87,9 @@ function MainAppNavigation() {
         screenOptions={({ route }) => ({
           tabBarIcon: ({ focused, color, size }) => {
             let iconName;
-            if (route.name === "Home")
-              iconName = focused ? "home" : "home-outline";
-            else if (route.name === "Chatbot")
-              iconName = focused ? "chatbubble" : "chatbubble-outline";
-            else if (route.name === "Settings")
-              iconName = focused ? "settings" : "settings-outline";
+            if (route.name === "Home") iconName = focused ? "home" : "home-outline";
+            else if (route.name === "Chatbot") iconName = focused ? "chatbubble" : "chatbubble-outline";
+            else if (route.name === "Settings") iconName = focused ? "settings" : "settings-outline";
             return <Ionicons name={iconName} size={size} color={color} />;
           },
           tabBarActiveTintColor: colors.primary,
@@ -134,11 +115,7 @@ function MainAppNavigation() {
           headerTintColor: colors.text,
         })}
       >
-        <Tab.Screen
-          name="Home"
-          component={DashboardStack}
-          options={{ headerShown: false }}
-        />
+        <Tab.Screen name="Home" component={DashboardStack} options={{ headerShown: false }} />
         <Tab.Screen name="Chatbot" component={Chatbot} />
         <Tab.Screen name="Settings" component={Settings} />
       </Tab.Navigator>
@@ -146,18 +123,20 @@ function MainAppNavigation() {
   );
 }
 
-// Root component
 export default function App() {
-  // For testing purposes, we'll set a mock user
-  const [user, setUser] = useState({
-    id: "test-user",
-    email: "test@example.com",
-    email_confirmed_at: new Date().toISOString()
-  });
+  const [user, setUser] = useState(null);
 
-  // Comment out the actual auth logic for now
-  /*
   useEffect(() => {
+    if (DEV_MODE) {
+      // Instantly set a mock user for development testing
+      setUser({
+        id: "test-user",
+        email: "test@example.com",
+        email_confirmed_at: new Date().toISOString(),
+      });
+      return;
+    }
+
     const getSession = async () => {
       const { data } = await supabase.auth.getSession();
       const user = data.session?.user;
@@ -171,17 +150,13 @@ export default function App() {
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         const user = session?.user;
-
         if (user?.email_confirmed_at) {
           setUser(user);
-
-          // Check and insert user into 'users' table if not already added
           const { data: existingUser, error } = await supabase
             .from("users")
             .select("id")
             .eq("id", user.id)
             .single();
-
           if (!existingUser && !error) {
             await supabase.from("users").insert({
               id: user.id,
@@ -190,42 +165,26 @@ export default function App() {
             });
           }
         } else {
-          setUser(null); // block login if email not verified
+          setUser(null);
         }
       }
     );
 
     return () => authListener.subscription.unsubscribe();
   }, []);
-  */
 
   return (
     <ThemeProvider>
       <PaperProvider>
         <NavigationContainer>
-          {/* Always show MainAppNavigation for testing */}
-          <Stack.Navigator screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="MainTabs" component={MainAppNavigation} />
-            <Stack.Screen
-              name="Profile"
-              component={ProfileScreen}
-              options={{ headerShown: true }}
-            />
-          </Stack.Navigator>
-          
-          {/* Comment out the conditional rendering for now */}
-          {/* {user ? (
+          {user ? (
             <Stack.Navigator screenOptions={{ headerShown: false }}>
               <Stack.Screen name="MainTabs" component={MainAppNavigation} />
-              <Stack.Screen
-                name="Profile"
-                component={ProfileScreen}
-                options={{ headerShown: true }}
-              />
+              <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: true }} />
             </Stack.Navigator>
           ) : (
             <AuthNavigation />
-          )} */}
+          )}
         </NavigationContainer>
       </PaperProvider>
     </ThemeProvider>
