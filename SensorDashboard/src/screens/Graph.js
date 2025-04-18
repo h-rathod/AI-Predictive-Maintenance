@@ -9,12 +9,13 @@ import {
   ActivityIndicator,
   Platform,
   StatusBar,
+  Pressable,
 } from "react-native";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { Card } from "react-native-paper";
 import { supabase } from "../utils/supabase";
 import { useTheme } from "../utils/ThemeContext";
-import { format, subDays, subWeeks, subMonths } from "date-fns";
+import { format, subDays, subWeeks, subMonths, subHours } from "date-fns";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { LineChart } from "react-native-chart-kit";
@@ -41,6 +42,7 @@ export default function Graph() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [datePickerType, setDatePickerType] = useState("start");
   const [touchCoordinates, setTouchCoordinates] = useState(null);
+  const [hoverPoint, setHoverPoint] = useState(null);
 
   // Fetch data when component mounts or param changes
   useEffect(() => {
@@ -170,11 +172,15 @@ export default function Graph() {
   const handleTimeframeChange = (newTimeframe) => {
     setTimeframe(newTimeframe);
     setSelectedPoint(null);
+    setHoverPoint(null);
 
     const now = new Date();
     let startDate;
 
     switch (newTimeframe) {
+      case "6h":
+        startDate = subHours(now, 6);
+        break;
       case "1d":
         startDate = subDays(now, 1);
         break;
@@ -183,6 +189,9 @@ export default function Graph() {
         break;
       case "1m":
         startDate = subMonths(now, 1);
+        break;
+      case "3m":
+        startDate = subMonths(now, 3);
         break;
       default:
         return;
@@ -200,11 +209,15 @@ export default function Graph() {
 
     try {
       switch (customTimeframe) {
+        case "6h":
+          return format(date, "h:mm a");
         case "1d":
           return format(date, "h:mm a");
         case "1w":
           return format(date, "EEE, MMM d");
         case "1m":
+          return format(date, "MMM d");
+        case "3m":
           return format(date, "MMM d");
         default:
           return format(date, "MMM d, yyyy");
@@ -329,7 +342,12 @@ export default function Graph() {
       // Now, limit the number of labels on the x-axis
       // We'll show only a few labels based on the timeframe
       let labelIndices = [];
-      const maxLabels = timeframe === "1d" ? 4 : timeframe === "1w" ? 5 : 6;
+      const maxLabels =
+        timeframe === "6h" || timeframe === "1d"
+          ? 4
+          : timeframe === "1w"
+          ? 5
+          : 6;
 
       if (dataToUse.length <= maxLabels) {
         // Show all labels if we have fewer data points than maxLabels
@@ -416,32 +434,95 @@ export default function Graph() {
     }
   };
 
+  // Determine chart color based on data trend
+  const determineChartColor = () => {
+    if (filteredData && filteredData.length > 1) {
+      const firstValue = filteredData[0].value;
+      const lastValue = filteredData[filteredData.length - 1].value;
+
+      if (lastValue > firstValue) {
+        // Uptrend
+        return {
+          line: "rgba(46, 213, 115, 1)",
+          gradient: {
+            from: isDarkMode
+              ? "rgba(46, 213, 115, 0)"
+              : "rgba(46, 213, 115, 0)",
+            to: isDarkMode
+              ? "rgba(46, 213, 115, 0.6)"
+              : "rgba(46, 213, 115, 0.3)",
+          },
+        };
+      } else {
+        // Downtrend
+        return {
+          line: "rgba(235, 87, 87, 1)",
+          gradient: {
+            from: isDarkMode ? "rgba(235, 87, 87, 0)" : "rgba(235, 87, 87, 0)",
+            to: isDarkMode
+              ? "rgba(235, 87, 87, 0.6)"
+              : "rgba(235, 87, 87, 0.3)",
+          },
+        };
+      }
+    }
+
+    // Default (blue)
+    return {
+      line: "rgba(0, 156, 255, 1)",
+      gradient: {
+        from: isDarkMode ? "rgba(0, 156, 255, 0)" : "rgba(0, 156, 255, 0)",
+        to: isDarkMode ? "rgba(0, 156, 255, 0.6)" : "rgba(0, 156, 255, 0.3)",
+      },
+    };
+  };
+
+  const chartColors = determineChartColor();
+
   // Chart configuration
   const chartConfig = {
     backgroundColor: colors.background,
-    backgroundGradientFrom: isDarkMode ? "#001B36" : colors.background,
-    backgroundGradientTo: isDarkMode ? "#000814" : colors.background,
+    backgroundGradientFrom: isDarkMode ? "#111111" : colors.background,
+    backgroundGradientTo: isDarkMode ? "#111111" : colors.background,
     decimalPlaces: 1,
-    color: (opacity = 1) => `rgba(0, 156, 255, ${opacity})`,
+    color: (opacity = 1) => chartColors.line.replace("1)", `${opacity})`),
     labelColor: (opacity = 1) =>
       isDarkMode
         ? `rgba(255, 255, 255, ${opacity})`
         : `rgba(0, 0, 0, ${opacity})`,
     propsForBackgroundLines: {
       strokeDasharray: "", // Solid lines
-      stroke: isDarkMode ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)", // Very subtle grid lines
+      stroke: isDarkMode ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)", // Very subtle grid lines
       strokeWidth: 1,
     },
     propsForDots: {
-      r: selectedPoint ? "4" : "0", // Show dots when a point is selected
+      r: selectedPoint || hoverPoint ? "4" : "0", // Show dots when a point is selected
       strokeWidth: "0",
     },
-    fillShadowGradient: "rgba(0, 156, 255, 1)",
-    fillShadowGradientOpacity: 0.6,
-    fillShadowGradientFrom: "rgba(0, 156, 255, 0)",
-    fillShadowGradientTo: "rgba(0, 156, 255, 0.6)",
+    fillShadowGradient: chartColors.line,
+    fillShadowGradientOpacity: 0.8,
+    fillShadowGradientFrom: chartColors.gradient.from,
+    fillShadowGradientTo: chartColors.gradient.to,
     useShadowColorFromDataset: false,
   };
+
+  // Show trend percentage
+  const calculateTrendPercentage = () => {
+    if (filteredData && filteredData.length > 1) {
+      const firstValue = filteredData[0].value;
+      const lastValue = filteredData[filteredData.length - 1].value;
+
+      const percentChange =
+        ((lastValue - firstValue) / Math.abs(firstValue)) * 100;
+      return {
+        value: percentChange.toFixed(2),
+        isPositive: percentChange >= 0,
+      };
+    }
+    return { value: "0.00", isPositive: true };
+  };
+
+  const trendData = calculateTrendPercentage();
 
   // Styles
   const styles = StyleSheet.create({
@@ -469,32 +550,67 @@ export default function Graph() {
       borderRadius: 20,
       backgroundColor: isDarkMode ? colors.card : "rgba(0, 0, 0, 0.05)",
     },
-    titleContainer: {
-      flex: 1,
+    cryptoHeader: {
+      padding: 16,
+      paddingTop: 20,
+    },
+    titleRow: {
+      flexDirection: "row",
       alignItems: "center",
-      marginVertical: 20,
+      marginBottom: 8,
+    },
+    icon: {
+      marginRight: 10,
+      backgroundColor: isDarkMode
+        ? "rgba(255,255,255,0.1)"
+        : "rgba(0,0,0,0.05)",
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      justifyContent: "center",
+      alignItems: "center",
     },
     title: {
-      fontSize: 24,
+      fontSize: 22,
       fontWeight: "bold",
       color: colors.text,
-      textAlign: "center",
-      paddingHorizontal: 20,
+    },
+    valueRow: {
+      flexDirection: "row",
+      alignItems: "baseline",
+      marginBottom: 8,
+    },
+    currentValue: {
+      fontSize: 32,
+      fontWeight: "bold",
+      color: colors.text,
+      marginRight: 10,
+    },
+    percentChange: {
+      fontSize: 16,
+      fontWeight: "600",
+      color: trendData.isPositive ? "#2ED573" : "#EB5757",
     },
     dateRange: {
       fontSize: 14,
       color: colors.textSecondary,
-      marginTop: 4,
+      marginTop: 10,
+      marginBottom: 20,
+      textAlign: "center",
     },
     contentContainer: {
-      flex: 1,
-      padding: 16,
+      padding: 0,
+    },
+    chartContainer: {
+      paddingHorizontal: 16,
+      marginBottom: 20,
     },
     card: {
       backgroundColor: colors.card,
       borderRadius: 16,
       padding: 16,
-      marginVertical: 12,
+      marginHorizontal: 16,
+      marginVertical: 16,
       borderWidth: 1,
       borderColor: colors.border,
       elevation: 2,
@@ -509,87 +625,82 @@ export default function Graph() {
       marginVertical: 16,
       overflow: "hidden",
     },
-    selectedPointContainer: {
+    timeframesContainer: {
       flexDirection: "row",
       justifyContent: "space-between",
-      marginBottom: 8,
-      padding: 12,
-      backgroundColor: colors.card,
+      marginHorizontal: 16,
+      backgroundColor: isDarkMode
+        ? "rgba(255,255,255,0.05)"
+        : "rgba(0,0,0,0.03)",
       borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
+      padding: 4,
+    },
+    timeButton: {
+      paddingVertical: 8,
+      paddingHorizontal: 0,
+      flex: 1,
+      alignItems: "center",
+      borderRadius: 10,
+      marginHorizontal: 2,
+    },
+    timeButtonActive: {
+      backgroundColor: isDarkMode ? colors.card : "#fff",
       elevation: 2,
       shadowColor: "#000",
       shadowOpacity: 0.1,
       shadowRadius: 2,
       shadowOffset: { width: 0, height: 1 },
     },
-    selectedPointValue: {
-      fontSize: 18,
-      fontWeight: "bold",
-      color: colors.text,
-    },
-    selectedPointDate: {
-      fontSize: 14,
+    timeButtonText: {
+      fontSize: 13,
+      fontWeight: "600",
       color: colors.textSecondary,
     },
-    timeframeContainer: {
-      flexDirection: "row",
-      justifyContent: "center",
-      marginVertical: 12,
+    timeButtonTextActive: {
+      color: colors.primary,
     },
-    timeframeButton: {
-      paddingVertical: 8,
-      paddingHorizontal: 16,
-      borderRadius: 20,
-      marginHorizontal: 4,
-    },
-    timeframeButtonActive: {
-      backgroundColor: colors.primary,
-      elevation: 2,
+    tooltipContainer: {
+      position: "absolute",
+      backgroundColor: isDarkMode
+        ? "rgba(30,30,30,0.9)"
+        : "rgba(255,255,255,0.9)",
+      borderRadius: 8,
+      padding: 10,
+      borderWidth: 1,
+      borderColor: isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)",
+      elevation: 5,
       shadowColor: "#000",
-      shadowOpacity: 0.1,
-      shadowRadius: 2,
-      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.2,
+      shadowRadius: 3,
+      shadowOffset: { width: 0, height: 2 },
+      minWidth: 120,
     },
-    timeframeButtonInactive: {
-      backgroundColor: isDarkMode ? colors.card : "#F1F5F9",
+    tooltipValue: {
+      fontSize: 14,
+      fontWeight: "bold",
+      color: colors.text,
+      marginBottom: 4,
+    },
+    tooltipDate: {
+      fontSize: 12,
+      color: colors.textSecondary,
+    },
+    statsCard: {
+      backgroundColor: colors.card,
+      borderRadius: 16,
+      overflow: "hidden",
       borderWidth: 1,
       borderColor: colors.border,
-    },
-    timeframeText: {
-      fontSize: 12,
-      fontWeight: "600",
-    },
-    timeframeTextActive: {
-      color: "white",
-    },
-    timeframeTextInactive: {
-      color: colors.text,
-    },
-    customDateButton: {
-      flexDirection: "row",
-      alignItems: "center",
-      paddingVertical: 8,
-      paddingHorizontal: 16,
-      borderRadius: 20,
-      backgroundColor: isDarkMode ? colors.card : "#F1F5F9",
-      borderWidth: 1,
-      borderColor: colors.border,
-      marginLeft: 4,
-    },
-    customDateText: {
-      fontSize: 12,
-      fontWeight: "600",
-      color: colors.text,
-      marginLeft: 4,
     },
     statsRow: {
       flexDirection: "row",
       justifyContent: "space-between",
-      paddingVertical: 8,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
       borderBottomWidth: 1,
-      borderBottomColor: colors.border,
+      borderBottomColor: isDarkMode
+        ? "rgba(255,255,255,0.05)"
+        : "rgba(0,0,0,0.05)",
     },
     statsLastRow: {
       borderBottomWidth: 0,
@@ -632,23 +743,16 @@ export default function Graph() {
     chartWrapper: {
       borderRadius: 16,
       overflow: "hidden",
+      backgroundColor: isDarkMode ? "#111111" : colors.background,
     },
-    tooltipContainer: {
+    selectedPointIndicator: {
       position: "absolute",
-      backgroundColor: colors.card,
-      borderRadius: 8,
-      padding: 8,
-      borderWidth: 1,
-      borderColor: colors.border,
-      elevation: 5,
-      shadowColor: "#000",
-      shadowOpacity: 0.2,
-      shadowRadius: 3,
-      shadowOffset: { width: 0, height: 2 },
-    },
-    tooltipText: {
-      color: colors.text,
-      fontSize: 12,
+      width: 12,
+      height: 12,
+      borderRadius: 6,
+      borderWidth: 2,
+      borderColor: isDarkMode ? "#fff" : "#000",
+      backgroundColor: chartColors.line,
     },
   });
 
@@ -663,68 +767,32 @@ export default function Graph() {
         >
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.title}>{formatParamName(param)}</Text>
+        <View style={{ flex: 1, alignItems: "center" }}>
+          <Text style={styles.title}>{formatParamName(param)}</Text>
+        </View>
+        <View style={{ width: 40 }} />
       </View>
 
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
       >
-        <View style={styles.titleContainer}>
-          <Text style={styles.dateRange}>
-            {formatDate(dateRange.startDate, "custom")} -{" "}
-            {formatDate(dateRange.endDate, "custom")}
-          </Text>
-        </View>
-
-        <View style={styles.timeframeContainer}>
-          {["1d", "1w", "1m"].map((tf) => (
-            <TouchableOpacity
-              key={tf}
-              style={[
-                styles.timeframeButton,
-                timeframe === tf
-                  ? styles.timeframeButtonActive
-                  : styles.timeframeButtonInactive,
-              ]}
-              onPress={() => handleTimeframeChange(tf)}
-              disabled={isLoading}
-            >
-              <Text
-                style={[
-                  styles.timeframeText,
-                  timeframe === tf
-                    ? styles.timeframeTextActive
-                    : styles.timeframeTextInactive,
-                ]}
-              >
-                {tf === "1d" ? "1 Day" : tf === "1w" ? "1 Week" : "1 Month"}
-              </Text>
-            </TouchableOpacity>
-          ))}
-
-          <TouchableOpacity
-            style={styles.customDateButton}
-            onPress={() => showDatePickerModal("start")}
-            disabled={isLoading}
-          >
-            <Ionicons name="calendar-outline" size={14} color={colors.text} />
-            <Text style={styles.customDateText}>Custom</Text>
-          </TouchableOpacity>
-        </View>
-
-        {selectedPoint && (
-          <View style={styles.selectedPointContainer}>
-            <Text style={styles.selectedPointValue}>
-              {formatValue(selectedPoint.value)}
+        <View style={styles.cryptoHeader}>
+          <View style={styles.valueRow}>
+            <Text style={styles.currentValue}>
+              {filteredData && filteredData.length > 0
+                ? formatValue(filteredData[filteredData.length - 1].value)
+                : formatValue(0)}
             </Text>
-            <Text style={styles.selectedPointDate}>
-              {formatDate(selectedPoint.timestamp)}
+            <Text style={styles.percentChange}>
+              {trendData.isPositive ? "+" : ""}
+              {trendData.value}%
             </Text>
           </View>
-        )}
+        </View>
 
-        <View style={styles.chartCard}>
+        <View style={styles.chartContainer}>
           {isLoading ? (
             <View style={styles.loaderContainer}>
               <ActivityIndicator size="large" color={colors.primary} />
@@ -736,11 +804,12 @@ export default function Graph() {
               <LineChart
                 data={chartData}
                 width={width - 32}
-                height={260}
+                height={220}
                 chartConfig={chartConfig}
                 bezier
                 style={{
-                  borderRadius: 16,
+                  borderRadius: 0,
+                  marginTop: 10,
                 }}
                 withShadow={true}
                 withDots={false}
@@ -761,15 +830,13 @@ export default function Graph() {
                     return (
                       <View
                         key={index}
-                        style={{
-                          position: "absolute",
-                          left: x - 4,
-                          top: y - 4,
-                          width: 8,
-                          height: 8,
-                          borderRadius: 4,
-                          backgroundColor: colors.primary,
-                        }}
+                        style={[
+                          styles.selectedPointIndicator,
+                          {
+                            left: x - 6,
+                            top: y - 6,
+                          },
+                        ]}
                       />
                     );
                   }
@@ -783,17 +850,17 @@ export default function Graph() {
                     styles.tooltipContainer,
                     {
                       left: Math.min(
-                        Math.max(touchCoordinates.x - 50, 10),
-                        width - 130
+                        Math.max(touchCoordinates.x - 60, 10),
+                        width - 150
                       ),
-                      top: Math.min(touchCoordinates.y - 40, 220),
+                      top: Math.min(touchCoordinates.y - 65, 155),
                     },
                   ]}
                 >
-                  <Text style={styles.tooltipText}>
+                  <Text style={styles.tooltipValue}>
                     {formatValue(selectedPoint.value)}
                   </Text>
-                  <Text style={styles.tooltipText}>
+                  <Text style={styles.tooltipDate}>
                     {formatDate(selectedPoint.timestamp)}
                   </Text>
                 </View>
@@ -802,7 +869,40 @@ export default function Graph() {
           )}
         </View>
 
-        <Card style={styles.card}>
+        <View style={styles.timeframesContainer}>
+          {["6h", "1d", "1w", "1m", "3m"].map((tf) => (
+            <Pressable
+              key={tf}
+              style={[
+                styles.timeButton,
+                timeframe === tf && styles.timeButtonActive,
+              ]}
+              onPress={() => handleTimeframeChange(tf)}
+              disabled={isLoading}
+            >
+              <Text
+                style={[
+                  styles.timeButtonText,
+                  timeframe === tf && styles.timeButtonTextActive,
+                ]}
+              >
+                {tf === "6h"
+                  ? "6H"
+                  : tf === "1d"
+                  ? "1D"
+                  : tf === "1w"
+                  ? "1W"
+                  : tf === "1m"
+                  ? "1M"
+                  : "3M"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <View
+          style={[styles.statsCard, { marginHorizontal: 16, marginTop: 16 }]}
+        >
           <View style={styles.statsRow}>
             <Text style={styles.statsLabel}>Average</Text>
             <Text style={styles.statsValue}>
@@ -821,7 +921,7 @@ export default function Graph() {
               {isLoading ? "..." : `${stats.min} ${getUnit(param)}`}
             </Text>
           </View>
-        </Card>
+        </View>
 
         {showDatePicker && (
           <DateTimePicker

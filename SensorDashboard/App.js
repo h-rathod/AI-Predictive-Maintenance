@@ -5,12 +5,18 @@ import {
   StyleSheet,
   Keyboard,
   View,
+  Text,
+  Dimensions,
 } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Provider as PaperProvider } from "react-native-paper";
 import { Ionicons } from "@expo/vector-icons";
+import Animated, {
+  useAnimatedStyle,
+  withTiming,
+} from "react-native-reanimated";
 
 import { supabase } from "./src/utils/supabase";
 
@@ -82,6 +88,132 @@ function DashboardStack() {
   );
 }
 
+// Custom Tab Bar Component inspired by Material UI
+function CustomTabBar({ state, descriptors, navigation }) {
+  const { colors, isDarkMode } = useTheme();
+
+  return (
+    <View
+      style={[
+        styles.tabBarContainer,
+        {
+          backgroundColor: isDarkMode ? colors.card : "#ffffff",
+          borderTopColor: isDarkMode
+            ? "rgba(255,255,255,0.1)"
+            : "rgba(0,0,0,0.05)",
+        },
+      ]}
+    >
+      {state.routes.map((route, index) => {
+        const { options } = descriptors[route.key];
+        const label =
+          options.tabBarLabel !== undefined
+            ? options.tabBarLabel
+            : options.title !== undefined
+            ? options.title
+            : route.name;
+
+        const isFocused = state.index === index;
+
+        const onPress = () => {
+          const event = navigation.emit({
+            type: "tabPress",
+            target: route.key,
+            canPreventDefault: true,
+          });
+
+          if (!isFocused && !event.defaultPrevented) {
+            navigation.navigate(route.name);
+          }
+        };
+
+        let iconName;
+        if (route.name === "Home") {
+          iconName = isFocused ? "home" : "home-outline";
+        } else if (route.name === "Chatbot") {
+          iconName = isFocused ? "chatbubble" : "chatbubble-outline";
+        } else if (route.name === "Settings") {
+          iconName = isFocused ? "settings" : "settings-outline";
+        }
+
+        return (
+          <TouchableRipple
+            key={index}
+            onPress={onPress}
+            style={styles.tabItem}
+            rippleColor={colors.primary}
+          >
+            <View style={styles.tabItemContent}>
+              <Ionicons
+                name={iconName}
+                size={24}
+                color={isFocused ? colors.primary : colors.textSecondary}
+              />
+              <Text
+                style={[
+                  styles.tabLabel,
+                  {
+                    color: isFocused ? colors.primary : colors.textSecondary,
+                    opacity: isFocused ? 1 : 0.8,
+                  },
+                ]}
+              >
+                {label}
+              </Text>
+              {isFocused && (
+                <View
+                  style={[
+                    styles.activeBadge,
+                    { backgroundColor: colors.primary },
+                  ]}
+                />
+              )}
+            </View>
+          </TouchableRipple>
+        );
+      })}
+    </View>
+  );
+}
+
+// Touchable Ripple Effect Component
+function TouchableRipple({ children, style, rippleColor, onPress }) {
+  const [isPressed, setIsPressed] = useState(false);
+
+  return (
+    <View
+      style={[style, { overflow: "hidden" }]}
+      onTouchStart={() => setIsPressed(true)}
+      onTouchEnd={() => setIsPressed(false)}
+      onTouchCancel={() => setIsPressed(false)}
+    >
+      <View
+        style={{ flex: 1 }}
+        onStartShouldSetResponder={() => true}
+        onResponderGrant={() => setIsPressed(true)}
+        onResponderRelease={() => {
+          setIsPressed(false);
+          onPress();
+        }}
+        onResponderTerminate={() => setIsPressed(false)}
+      >
+        {children}
+        {isPressed && (
+          <View
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                backgroundColor: rippleColor || "#000",
+                opacity: 0.12,
+              },
+            ]}
+          />
+        )}
+      </View>
+    </View>
+  );
+}
+
 function MainAppNavigation() {
   const { isDarkMode, colors } = useTheme();
   const [isKeyboardVisible, setKeyboardVisible] = useState(false);
@@ -108,44 +240,10 @@ function MainAppNavigation() {
         backgroundColor={colors.background}
       />
       <Tab.Navigator
-        screenOptions={({ route }) => ({
-          tabBarIcon: ({ focused, color, size }) => {
-            let iconName;
-            if (route.name === "Home")
-              iconName = focused ? "home" : "home-outline";
-            else if (route.name === "Chatbot")
-              iconName = focused ? "chatbubble" : "chatbubble-outline";
-            else if (route.name === "Settings")
-              iconName = focused ? "settings" : "settings-outline";
-            return (
-              <View style={styles.tabIconContainer}>
-                <Ionicons name={iconName} size={size} color={color} />
-              </View>
-            );
-          },
-          tabBarActiveTintColor: colors.primary,
-          tabBarInactiveTintColor: colors.textSecondary,
-          tabBarStyle: {
-            backgroundColor: colors.card,
-            borderTopColor: colors.border,
-            borderTopWidth: 1,
-            height: 65,
-            elevation: 8,
-            shadowColor: "#000",
-            shadowOpacity: 0.1,
-            shadowRadius: 4,
-            shadowOffset: { width: 0, height: -2 },
-            paddingBottom: 10,
-            paddingTop: 10,
-            display: isKeyboardVisible ? "none" : "flex",
-          },
-          tabBarItemStyle: {
-            padding: 5,
-          },
-          tabBarLabelStyle: {
-            fontSize: 11,
-            fontWeight: "500",
-          },
+        tabBar={(props) =>
+          isKeyboardVisible ? null : <CustomTabBar {...props} />
+        }
+        screenOptions={{
           headerStyle: {
             backgroundColor: colors.background,
             elevation: 0,
@@ -154,7 +252,7 @@ function MainAppNavigation() {
             borderBottomColor: colors.border,
           },
           headerTintColor: colors.text,
-        })}
+        }}
       >
         <Tab.Screen
           name="Home"
@@ -244,8 +342,36 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  tabIconContainer: {
-    alignItems: "center",
+  tabBarContainer: {
+    flexDirection: "row",
+    height: 60,
+    borderTopWidth: 1,
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: -2 },
+  },
+  tabItem: {
+    flex: 1,
     justifyContent: "center",
+    alignItems: "center",
+  },
+  tabItemContent: {
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 4,
+  },
+  tabLabel: {
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: "500",
+  },
+  activeBadge: {
+    position: "absolute",
+    bottom: -12,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
   },
 });
