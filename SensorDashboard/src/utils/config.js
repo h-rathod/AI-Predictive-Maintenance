@@ -10,6 +10,24 @@ import { BACKEND_URL, SUPABASE_URL, SUPABASE_ANON_KEY } from "@env";
 // Backend API URL
 // For local development, use your computer's IP address instead of localhost
 // In production, this should be set to your actual backend URL
+export const API_URL = BACKEND_URL || "http://localhost:3000";
+
+// Export a function to check server connectivity
+export const checkServerConnectivity = async () => {
+  try {
+    const response = await fetch(`${API_URL}/health`, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+      timeout: 5000,
+    });
+    return response.ok;
+  } catch (error) {
+    console.error("Server connectivity check failed:", error);
+    return false;
+  }
+};
 
 // Supabase configuration
 // These values MUST be set in environment variables

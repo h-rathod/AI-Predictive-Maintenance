@@ -16,6 +16,11 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+// Add health check endpoint
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok", message: "Server is running" });
+});
+
 // Initialize OpenAI and Supabase clients
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const supabase = createClient(
@@ -71,8 +76,11 @@ If the user asks something unrelated to sensor data, respond with GENERAL: follo
  */
 async function analyzeUserQuery(userPrompt) {
   try {
+    // Use the specified model from request or default to a modern model
+    const model = "gpt-4.1-2025-04-14";
+
     const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+      model: model,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -218,8 +226,11 @@ async function getStatus(field) {
  */
 async function formatResponse(userPrompt, queryType, field, data) {
   try {
+    // Use the specified model from request or default to a modern model
+    const model = "gpt-4.1-2025-04-14";
+
     const formattedResponse = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+      model: model,
       messages: [
         {
           role: "system",
@@ -245,6 +256,7 @@ async function formatResponse(userPrompt, queryType, field, data) {
 // Endpoint to handle chat requests
 app.post("/chat", async (req, res) => {
   const userPrompt = req.body.prompt;
+  const requestedModel = req.body.model; // Get model from request
 
   try {
     // Step 1: Analyze the query to determine what data is needed
@@ -298,6 +310,7 @@ app.post("/chat", async (req, res) => {
     }
 
     // Step 4: Format the data into a natural response
+    // Use requested model if provided
     const response = await formatResponse(userPrompt, queryType, field, data);
     res.json({ response });
   } catch (error) {
@@ -311,4 +324,19 @@ app.post("/chat", async (req, res) => {
 
 // Start the server
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`
+========================================
+🤖 Sensor Dashboard Chatbot Server
+----------------------------------------
+✅ Server is running on port ${PORT}
+📅 Server started at ${new Date().toLocaleString()}
+🔑 OpenAI Key: ${process.env.OPENAI_API_KEY ? "Configured" : "Missing"}
+🗃️ Supabase URL: ${process.env.SUPABASE_URL ? "Configured" : "Missing"}
+🔌 Health check: GET /health
+📊 Chat API: POST /chat
+========================================
+  `);
+});
+
+module.exports = app; // Export for testing
