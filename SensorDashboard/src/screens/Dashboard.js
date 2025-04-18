@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   StyleSheet,
@@ -6,6 +6,7 @@ import {
   Text,
   Dimensions,
   TouchableOpacity,
+  ActivityIndicator,
 } from "react-native";
 import { supabase } from "../utils/supabase";
 import { useNavigation } from "@react-navigation/native";
@@ -16,156 +17,245 @@ import { useTheme } from "../utils/ThemeContext";
 const { width } = Dimensions.get("window");
 const cardWidth = (width - 48) / 2; // Two cards per row with spacing
 
+// Cache for sensor data to improve performance
+let dataCache = {
+  timestamp: null,
+  current: null,
+  previous: null,
+  expiryTime: 10000, // Cache expiry in ms (10 seconds)
+};
+
 export default function Dashboard() {
   const { colors } = useTheme();
   const [sensorData, setSensorData] = useState({});
   const [previousData, setPreviousData] = useState({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const navigation = useNavigation();
 
   // Create theme-aware styles
-  const themedStyles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-      padding: 12,
-    },
-    headerContainer: {
-      marginBottom: 20,
-      paddingHorizontal: 5,
-      paddingTop: 10,
-    },
-    headerTitle: {
-      fontSize: 24,
-      fontWeight: "600",
-      color: colors.text,
-      marginBottom: 5,
-    },
-    headerSubtitle: {
-      fontSize: 12,
-      color: colors.textSecondary,
-    },
-    cardContainer: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      justifyContent: "space-between",
-    },
-    card: {
-      width: cardWidth,
-      height: 140,
-      marginBottom: 12,
-      borderRadius: 12,
-      overflow: "hidden",
-      backgroundColor: colors.card,
-      borderWidth: 1,
-      borderColor: colors.border,
-      padding: 12,
-    },
-    cardContent: {
-      flex: 1,
-      justifyContent: "space-between",
-    },
-    paramName: {
-      fontSize: 14,
-      fontWeight: "bold",
-      color: colors.text,
-      marginBottom: 8,
-    },
-    valueContainer: {
-      flex: 1,
-      justifyContent: "center",
-    },
-    valueText: {
-      fontSize: 28,
-      fontWeight: "bold",
-      color: colors.text,
-    },
-    unitText: {
-      fontSize: 16,
-      fontWeight: "normal",
-      color: colors.textSecondary,
-    },
-    trendContainer: {
-      flexDirection: "row",
-      alignItems: "center",
-    },
-    trendIconUp: {
-      marginRight: 4,
-    },
-    trendIconDown: {
-      marginRight: 4,
-    },
-    trendIconStable: {
-      marginRight: 4,
-    },
-    diffText: {
-      fontSize: 12,
-    },
-  });
+  const themedStyles = useMemo(
+    () =>
+      StyleSheet.create({
+        container: {
+          flex: 1,
+          backgroundColor: colors.background,
+          padding: 12,
+        },
+        headerContainer: {
+          marginBottom: 20,
+          paddingHorizontal: 5,
+          paddingTop: 10,
+        },
+        headerTitle: {
+          fontSize: 24,
+          fontWeight: "600",
+          color: colors.text,
+          marginBottom: 5,
+        },
+        headerSubtitle: {
+          fontSize: 12,
+          color: colors.textSecondary,
+        },
+        cardContainer: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          justifyContent: "space-between",
+        },
+        card: {
+          width: cardWidth,
+          height: 140,
+          marginBottom: 12,
+          borderRadius: 12,
+          overflow: "hidden",
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+          padding: 12,
+        },
+        cardContent: {
+          flex: 1,
+          justifyContent: "space-between",
+        },
+        paramName: {
+          fontSize: 14,
+          fontWeight: "bold",
+          color: colors.text,
+          marginBottom: 8,
+        },
+        valueContainer: {
+          flex: 1,
+          justifyContent: "center",
+        },
+        valueText: {
+          fontSize: 28,
+          fontWeight: "bold",
+          color: colors.text,
+        },
+        unitText: {
+          fontSize: 16,
+          fontWeight: "normal",
+          color: colors.textSecondary,
+        },
+        trendContainer: {
+          flexDirection: "row",
+          alignItems: "center",
+        },
+        trendIconUp: {
+          marginRight: 4,
+        },
+        trendIconDown: {
+          marginRight: 4,
+        },
+        trendIconStable: {
+          marginRight: 4,
+        },
+        diffText: {
+          fontSize: 12,
+        },
+        loadingOverlay: {
+          ...StyleSheet.absoluteFillObject,
+          backgroundColor: colors.background,
+          opacity: 0.7,
+          justifyContent: "center",
+          alignItems: "center",
+          zIndex: 100,
+        },
+      }),
+    [colors]
+  );
 
-  useEffect(() => {
-    const fetchLatestData = async () => {
-      // Get the latest two records to calculate differences
-      const { data, error } = await supabase
+  // Function to fetch the latest data with caching
+  const fetchLatestData = useCallback(async (forceRefresh = false) => {
+    try {
+      const now = Date.now();
+
+      // Use cached data if available and not expired
+      if (
+        !forceRefresh &&
+        dataCache.timestamp &&
+        dataCache.current &&
+        now - dataCache.timestamp < dataCache.expiryTime
+      ) {
+        setSensorData(dataCache.current);
+        setPreviousData(dataCache.previous);
+        setIsLoading(false);
+        console.log("Using cached data");
+        return;
+      }
+
+      setIsLoading(true);
+
+      // Get only the latest 2 records for better performance
+      const { data: latestData, error } = await supabase
         .from("sensor_data")
         .select("*")
         .order("timestamp", { ascending: false })
         .limit(2);
 
       if (error) {
-        console.error("Error fetching initial data:", error.message);
-      } else if (data && data.length > 0) {
-        setSensorData(data[0] || {});
-        if (data.length > 1) {
-          setPreviousData(data[1] || {});
-        }
+        console.error("Error fetching data:", error.message);
+        return;
       }
-    };
 
+      if (latestData && latestData.length > 0) {
+        // Set current data to the most recent record
+        const current = latestData[0];
+        setSensorData(current);
+
+        // Use the second record as previous data
+        const previous = latestData.length > 1 ? latestData[1] : null;
+        setPreviousData(previous || {});
+
+        // Update cache
+        dataCache = {
+          ...dataCache,
+          timestamp: now,
+          current,
+          previous: previous || {},
+        };
+      }
+    } catch (err) {
+      console.error("Failed to fetch sensor data:", err);
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Initial data fetch
     fetchLatestData();
 
+    // Setup real-time subscription with optimizations
     const subscription = supabase
       .channel("sensor-data-channel")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "sensor_data" },
         (payload) => {
+          // Debounce frequent updates (e.g., if multiple readings come in quickly)
+          if (dataCache.timestamp && Date.now() - dataCache.timestamp < 500) {
+            return;
+          }
+
+          console.log("New sensor data received via subscription");
           // When new data comes in, current data becomes previous data
+          const newData = payload.new;
           setPreviousData(sensorData);
-          setSensorData(payload.new);
+          setSensorData(newData);
+
+          // Update cache
+          dataCache = {
+            ...dataCache,
+            timestamp: Date.now(),
+            current: newData,
+            previous: sensorData,
+          };
         }
       )
       .subscribe();
 
+    // Refresh data periodically (every 30 seconds)
+    const refreshInterval = setInterval(() => {
+      fetchLatestData(true);
+    }, 30000);
+
     return () => {
       subscription.unsubscribe();
+      clearInterval(refreshInterval);
     };
-  }, []);
+  }, [fetchLatestData, sensorData]);
 
-  const parameters = [
-    "evaporator_coil_temperature",
-    "freezer_temperature",
-    "fridge_temperature",
-    "air_temperature",
-    "humidity",
-    "compressor_vibration",
-    "compressor_current",
-    "input_voltage",
-    "gas_leakage_level",
-    "power_consumption",
-    "temperature_diff",
-  ];
+  // Memoize parameters array to avoid recreating on every render
+  const parameters = useMemo(
+    () => [
+      "evaporator_coil_temperature",
+      "freezer_temperature",
+      "fridge_temperature",
+      "air_temperature",
+      "humidity",
+      "compressor_vibration",
+      "compressor_current",
+      "input_voltage",
+      "gas_leakage_level",
+      "power_consumption",
+      "temperature_diff",
+    ],
+    []
+  );
 
   // Format parameter name for display
-  const formatParamName = (param) => {
+  const formatParamName = useCallback((param) => {
     return param
       .split("_")
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(" ");
-  };
+  }, []);
 
-  // Get the appropriate unit for a parameter
-  const getUnit = (param) => {
-    const units = {
+  // Get the appropriate unit for a parameter - memoize the units object
+  const units = useMemo(
+    () => ({
       evaporator_coil_temperature: "°C",
       freezer_temperature: "°C",
       fridge_temperature: "°C",
@@ -180,62 +270,89 @@ export default function Dashboard() {
       power_consumption: "W",
       gas_leakage_level: "ppm",
       temperature_diff: "°C",
-    };
-    return units[param] || "";
-  };
+    }),
+    []
+  );
+
+  const getUnit = useCallback(
+    (param) => {
+      return units[param] || "";
+    },
+    [units]
+  );
 
   // Calculate the difference between current and previous values
-  const calculateDifference = (param) => {
-    if (
-      sensorData &&
-      previousData &&
-      sensorData[param] !== undefined &&
-      previousData[param] !== undefined
-    ) {
-      return sensorData[param] - previousData[param];
-    }
-    return 0;
-  };
+  const calculateDifference = useCallback(
+    (param) => {
+      if (
+        !sensorData ||
+        !previousData ||
+        typeof sensorData[param] !== "number" ||
+        typeof previousData[param] !== "number"
+      ) {
+        return 0;
+      }
+
+      // Calculate the actual difference
+      const currentValue = parseFloat(sensorData[param]);
+      const prevValue = parseFloat(previousData[param]);
+      return currentValue - prevValue;
+    },
+    [sensorData, previousData]
+  );
+
+  // Memoize the decreasing is better array
+  const decreasingIsBetter = useMemo(
+    () => ["compressor_vibration", "gas_leakage_level", "power_consumption"],
+    []
+  );
 
   // Determine the trend icon and color based on the difference
-  const getTrendInfo = (param) => {
-    const diff = calculateDifference(param);
+  const getTrendInfo = useCallback(
+    (param) => {
+      const diff = calculateDifference(param);
+      const isDecreasingBetter = decreasingIsBetter.includes(param);
 
-    // For these parameters, decreasing is better
-    const decreasingIsBetter = [
-      "compressor_vibration",
-      "gas_leakage_level",
-      "power_consumption",
-    ];
-    const isDecreasingBetter = decreasingIsBetter.includes(param);
+      if (Math.abs(diff) < 0.001) {
+        return {
+          icon: "remove-outline",
+          color: colors.stable,
+          iconStyle: themedStyles.trendIconStable,
+        };
+      }
 
-    if (Math.abs(diff) < 0.001) {
+      if (
+        (diff > 0 && !isDecreasingBetter) ||
+        (diff < 0 && isDecreasingBetter)
+      ) {
+        return {
+          icon: "arrow-up-outline",
+          color: colors.increasing,
+          iconStyle: themedStyles.trendIconUp,
+        };
+      }
+
       return {
-        icon: "remove-outline",
-        color: colors.stable,
-        iconStyle: themedStyles.trendIconStable,
+        icon: "arrow-down-outline",
+        color: colors.decreasing,
+        iconStyle: themedStyles.trendIconDown,
       };
-    }
+    },
+    [calculateDifference, colors, decreasingIsBetter, themedStyles]
+  );
 
-    if ((diff > 0 && !isDecreasingBetter) || (diff < 0 && isDecreasingBetter)) {
-      return {
-        icon: "arrow-up-outline",
-        color: colors.increasing,
-        iconStyle: themedStyles.trendIconUp,
-      };
-    }
-
-    return {
-      icon: "arrow-down-outline",
-      color: colors.decreasing,
-      iconStyle: themedStyles.trendIconDown,
-    };
-  };
+  // Handle card press with proper memoization
+  const handleCardPress = useCallback(
+    (param) => {
+      navigation.navigate("Graph", { param });
+    },
+    [navigation]
+  );
 
   return (
     <ScrollView
       style={themedStyles.container}
-      contentContainerStyle={{ paddingBottom: 90 }} // Add bottom padding to scroll content
+      contentContainerStyle={{ paddingBottom: 90 }}
     >
       <View style={themedStyles.headerContainer}>
         <Text style={themedStyles.headerTitle}>Dashboard</Text>
@@ -257,7 +374,7 @@ export default function Dashboard() {
             <TouchableOpacity
               key={param}
               style={themedStyles.card}
-              onPress={() => navigation.navigate("Graph", { param })}
+              onPress={() => handleCardPress(param)}
             >
               <View style={themedStyles.cardContent}>
                 <Text style={themedStyles.paramName}>
@@ -287,6 +404,12 @@ export default function Dashboard() {
           );
         })}
       </View>
+
+      {refreshing && (
+        <View style={themedStyles.loadingOverlay}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      )}
     </ScrollView>
   );
 }

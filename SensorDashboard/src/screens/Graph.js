@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,8 @@ import {
   Platform,
   StatusBar,
   Pressable,
+  Animated,
+  PanResponder,
 } from "react-native";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { Card } from "react-native-paper";
@@ -22,11 +24,21 @@ import { LineChart } from "react-native-chart-kit";
 
 const { width } = Dimensions.get("window");
 
+// Enhanced chart constants
+const CHART_HEIGHT = 220;
+const DOT_SIZE = 12;
+const ACTIVE_DOT_RADIUS = 6;
+
 export default function Graph() {
   const { colors, isDarkMode } = useTheme();
   const route = useRoute();
   const navigation = useNavigation();
   const { param } = route.params;
+  const scrollViewRef = useRef(null);
+
+  // Animated values for pan gesture
+  const panX = useRef(new Animated.Value(0)).current;
+  const panOpacity = useRef(new Animated.Value(0)).current;
 
   // State variables
   const [data, setData] = useState([]);
@@ -42,7 +54,105 @@ export default function Graph() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [datePickerType, setDatePickerType] = useState("start");
   const [touchCoordinates, setTouchCoordinates] = useState(null);
-  const [hoverPoint, setHoverPoint] = useState(null);
+  const [isPanning, setIsPanning] = useState(false);
+
+  // Setup pan responder
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        handleGestureStart(evt.nativeEvent.locationX);
+      },
+      onPanResponderMove: (evt) => {
+        handleGestureMove(evt.nativeEvent.locationX);
+      },
+      onPanResponderRelease: () => {
+        handleGestureEnd();
+      },
+      onPanResponderTerminate: () => {
+        handleGestureEnd();
+      },
+    })
+  ).current;
+
+  // Gesture handling for chart interaction
+  const handleGestureStart = (x) => {
+    if (!chartData.rawData || chartData.rawData.length === 0) return;
+
+    setIsPanning(true);
+    findNearestPoint(x);
+
+    // Show the selection dot with animation
+    Animated.timing(panOpacity, {
+      toValue: 1,
+      duration: 150,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handleGestureMove = (x) => {
+    if (!isPanning) return;
+    findNearestPoint(x);
+  };
+
+  const handleGestureEnd = () => {
+    setIsPanning(false);
+
+    // Hide the selection dot with animation
+    Animated.timing(panOpacity, {
+      toValue: 0,
+      duration: 150,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  // Find the nearest data point to touch position
+  const findNearestPoint = (x) => {
+    if (!chartData.rawData || chartData.rawData.length < 2) return;
+
+    // Calculate the chart area width
+    const chartWidth = width - 32;
+
+    // Calculate point spacing
+    const pointSpacing = chartWidth / (chartData.rawData.length - 1);
+
+    // Calculate index
+    const index = Math.round(x / pointSpacing);
+    const clampedIndex = Math.max(
+      0,
+      Math.min(chartData.rawData.length - 1, index)
+    );
+
+    // Get data point
+    const pointData = chartData.rawData[clampedIndex];
+    if (pointData) {
+      setSelectedPoint({
+        value: pointData.value,
+        timestamp: pointData.timestamp,
+        index: clampedIndex,
+        x: clampedIndex * pointSpacing,
+        y: calculateYPosition(pointData.value),
+      });
+
+      // Update animated position
+      panX.setValue(clampedIndex * pointSpacing);
+    }
+  };
+
+  // Calculate Y position for point
+  const calculateYPosition = (value) => {
+    if (!chartData.rawData || chartData.rawData.length === 0) return 0;
+
+    const values = chartData.rawData.map((item) => item.value);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = max - min;
+
+    // Calculate position (inverted since Y goes from top to bottom)
+    const percentage = range === 0 ? 0.5 : (max - value) / range;
+    return percentage * CHART_HEIGHT;
+  };
 
   // Fetch data when component mounts or param changes
   useEffect(() => {
@@ -172,15 +282,11 @@ export default function Graph() {
   const handleTimeframeChange = (newTimeframe) => {
     setTimeframe(newTimeframe);
     setSelectedPoint(null);
-    setHoverPoint(null);
 
     const now = new Date();
     let startDate;
 
     switch (newTimeframe) {
-      case "6h":
-        startDate = subHours(now, 6);
-        break;
       case "1d":
         startDate = subDays(now, 1);
         break;
@@ -190,9 +296,11 @@ export default function Graph() {
       case "1m":
         startDate = subMonths(now, 1);
         break;
-      case "3m":
-        startDate = subMonths(now, 3);
-        break;
+      case "custom":
+        // For custom, don't change the date range automatically
+        // Just open the date picker
+        showDatePickerModal("start");
+        return;
       default:
         return;
     }
@@ -382,7 +490,8 @@ export default function Graph() {
         datasets: [
           {
             data: dataToUse.map((item) => item.value),
-            color: () => `rgba(0, 156, 255, 1)`, // Line color
+            color: () =>
+              isDarkMode ? "rgba(70, 130, 255, 1)" : "rgba(0, 120, 255, 1)", // Line color
             strokeWidth: 2,
           },
         ],
@@ -393,7 +502,7 @@ export default function Graph() {
       console.error("Error preparing chart data:", err);
       return { labels: [], datasets: [{ data: [] }] };
     }
-  }, [filteredData, timeframe]);
+  }, [filteredData, timeframe, isDarkMode]);
 
   // Component to show when no data is available
   const NoDataView = () => (
@@ -434,95 +543,64 @@ export default function Graph() {
     }
   };
 
-  // Determine chart color based on data trend
-  const determineChartColor = () => {
+  // Calculate trend percentage - normalize based on time period
+  const calculateTrendPercentage = () => {
     if (filteredData && filteredData.length > 1) {
       const firstValue = filteredData[0].value;
       const lastValue = filteredData[filteredData.length - 1].value;
 
-      if (lastValue > firstValue) {
-        // Uptrend
-        return {
-          line: "rgba(46, 213, 115, 1)",
-          gradient: {
-            from: isDarkMode
-              ? "rgba(46, 213, 115, 0)"
-              : "rgba(46, 213, 115, 0)",
-            to: isDarkMode
-              ? "rgba(46, 213, 115, 0.6)"
-              : "rgba(46, 213, 115, 0.3)",
-          },
-        };
-      } else {
-        // Downtrend
-        return {
-          line: "rgba(235, 87, 87, 1)",
-          gradient: {
-            from: isDarkMode ? "rgba(235, 87, 87, 0)" : "rgba(235, 87, 87, 0)",
-            to: isDarkMode
-              ? "rgba(235, 87, 87, 0.6)"
-              : "rgba(235, 87, 87, 0.3)",
-          },
-        };
-      }
-    }
+      // Calculate absolute change
+      const absoluteChange = lastValue - firstValue;
 
-    // Default (blue)
-    return {
-      line: "rgba(0, 156, 255, 1)",
-      gradient: {
-        from: isDarkMode ? "rgba(0, 156, 255, 0)" : "rgba(0, 156, 255, 0)",
-        to: isDarkMode ? "rgba(0, 156, 255, 0.6)" : "rgba(0, 156, 255, 0.3)",
-      },
-    };
+      // Calculate percentage change based on first value
+      // Avoid division by zero
+      const percentChange =
+        firstValue !== 0
+          ? (absoluteChange / Math.abs(firstValue)) * 100
+          : absoluteChange * 100;
+
+      // Normalize for time period to make it consistent across different timeframes
+      return {
+        value: percentChange.toFixed(2),
+        isPositive: percentChange >= 0,
+        absoluteChange: absoluteChange.toFixed(2),
+      };
+    }
+    return { value: "0.00", isPositive: true, absoluteChange: "0.00" };
   };
 
-  const chartColors = determineChartColor();
+  const trendData = calculateTrendPercentage();
 
   // Chart configuration
   const chartConfig = {
     backgroundColor: colors.background,
-    backgroundGradientFrom: isDarkMode ? "#111111" : colors.background,
-    backgroundGradientTo: isDarkMode ? "#111111" : colors.background,
+    backgroundGradientFrom: isDarkMode ? "#121212" : colors.background,
+    backgroundGradientTo: isDarkMode ? "#121212" : colors.background,
     decimalPlaces: 1,
-    color: (opacity = 1) => chartColors.line.replace("1)", `${opacity})`),
+    color: (opacity = 1) =>
+      isDarkMode
+        ? `rgba(70, 130, 255, ${opacity})`
+        : `rgba(0, 120, 255, ${opacity})`,
     labelColor: (opacity = 1) =>
       isDarkMode
         ? `rgba(255, 255, 255, ${opacity})`
         : `rgba(0, 0, 0, ${opacity})`,
     propsForBackgroundLines: {
       strokeDasharray: "", // Solid lines
-      stroke: isDarkMode ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)", // Very subtle grid lines
+      stroke: isDarkMode ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.03)", // Very subtle grid lines
       strokeWidth: 1,
     },
     propsForDots: {
-      r: selectedPoint || hoverPoint ? "4" : "0", // Show dots when a point is selected
+      r: "0", // Hide default dots
       strokeWidth: "0",
     },
-    fillShadowGradient: chartColors.line,
-    fillShadowGradientOpacity: 0.8,
-    fillShadowGradientFrom: chartColors.gradient.from,
-    fillShadowGradientTo: chartColors.gradient.to,
+    // Configure gradient - just a slight effect
+    fillShadowGradient: isDarkMode
+      ? "rgba(70, 130, 255, 1)"
+      : "rgba(0, 120, 255, 1)",
+    fillShadowGradientOpacity: 0.2,
     useShadowColorFromDataset: false,
   };
-
-  // Show trend percentage
-  const calculateTrendPercentage = () => {
-    if (filteredData && filteredData.length > 1) {
-      const firstValue = filteredData[0].value;
-      const lastValue = filteredData[filteredData.length - 1].value;
-
-      const percentChange =
-        ((lastValue - firstValue) / Math.abs(firstValue)) * 100;
-      return {
-        value: percentChange.toFixed(2),
-        isPositive: percentChange >= 0,
-      };
-    }
-    return { value: "0.00", isPositive: true };
-  };
-
-  const trendData = calculateTrendPercentage();
 
   // Styles
   const styles = StyleSheet.create({
@@ -554,27 +632,6 @@ export default function Graph() {
       padding: 16,
       paddingTop: 20,
     },
-    titleRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      marginBottom: 8,
-    },
-    icon: {
-      marginRight: 10,
-      backgroundColor: isDarkMode
-        ? "rgba(255,255,255,0.1)"
-        : "rgba(0,0,0,0.05)",
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      justifyContent: "center",
-      alignItems: "center",
-    },
-    title: {
-      fontSize: 22,
-      fontWeight: "bold",
-      color: colors.text,
-    },
     valueRow: {
       flexDirection: "row",
       alignItems: "baseline",
@@ -589,7 +646,13 @@ export default function Graph() {
     percentChange: {
       fontSize: 16,
       fontWeight: "600",
-      color: trendData.isPositive ? "#2ED573" : "#EB5757",
+      color: trendData.isPositive ? "#4CD964" : "#FF3B30",
+    },
+    title: {
+      fontSize: 18,
+      fontWeight: "bold",
+      color: colors.text,
+      textAlign: "center",
     },
     dateRange: {
       fontSize: 14,
@@ -605,6 +668,10 @@ export default function Graph() {
       paddingHorizontal: 16,
       marginBottom: 20,
     },
+    chartTouchable: {
+      borderRadius: 16,
+      overflow: "hidden",
+    },
     card: {
       backgroundColor: colors.card,
       borderRadius: 16,
@@ -618,12 +685,6 @@ export default function Graph() {
       shadowOpacity: 0.1,
       shadowRadius: 4,
       shadowOffset: { width: 0, height: 2 },
-    },
-    chartCard: {
-      backgroundColor: "transparent",
-      borderRadius: 16,
-      marginVertical: 16,
-      overflow: "hidden",
     },
     timeframesContainer: {
       flexDirection: "row",
@@ -658,32 +719,6 @@ export default function Graph() {
     },
     timeButtonTextActive: {
       color: colors.primary,
-    },
-    tooltipContainer: {
-      position: "absolute",
-      backgroundColor: isDarkMode
-        ? "rgba(30,30,30,0.9)"
-        : "rgba(255,255,255,0.9)",
-      borderRadius: 8,
-      padding: 10,
-      borderWidth: 1,
-      borderColor: isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)",
-      elevation: 5,
-      shadowColor: "#000",
-      shadowOpacity: 0.2,
-      shadowRadius: 3,
-      shadowOffset: { width: 0, height: 2 },
-      minWidth: 120,
-    },
-    tooltipValue: {
-      fontSize: 14,
-      fontWeight: "bold",
-      color: colors.text,
-      marginBottom: 4,
-    },
-    tooltipDate: {
-      fontSize: 12,
-      color: colors.textSecondary,
     },
     statsCard: {
       backgroundColor: colors.card,
@@ -743,16 +778,93 @@ export default function Graph() {
     chartWrapper: {
       borderRadius: 16,
       overflow: "hidden",
-      backgroundColor: isDarkMode ? "#111111" : colors.background,
+      backgroundColor: isDarkMode ? "#121212" : colors.background,
+      position: "relative",
     },
-    selectedPointIndicator: {
+    selectableDotContainer: {
       position: "absolute",
-      width: 12,
-      height: 12,
-      borderRadius: 6,
-      borderWidth: 2,
-      borderColor: isDarkMode ? "#fff" : "#000",
-      backgroundColor: chartColors.line,
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 10,
+    },
+    selectionDot: {
+      position: "absolute",
+      width: DOT_SIZE,
+      height: DOT_SIZE,
+      borderRadius: DOT_SIZE / 2,
+      backgroundColor: isDarkMode ? "#fff" : "#000",
+      marginLeft: -DOT_SIZE / 2,
+      marginTop: -DOT_SIZE / 2,
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 12,
+    },
+    selectionDotInner: {
+      width: ACTIVE_DOT_RADIUS * 2,
+      height: ACTIVE_DOT_RADIUS * 2,
+      borderRadius: ACTIVE_DOT_RADIUS,
+      backgroundColor: isDarkMode ? "#4680FF" : "#007AFF",
+    },
+    tooltip: {
+      position: "absolute",
+      backgroundColor: isDarkMode
+        ? "rgba(30,30,30,0.9)"
+        : "rgba(255,255,255,0.95)",
+      borderRadius: 8,
+      padding: 8,
+      paddingHorizontal: 12,
+      minWidth: 100,
+      maxWidth: 180,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.15,
+      shadowRadius: 6,
+      elevation: 5,
+      zIndex: 15,
+      borderWidth: 1,
+      borderColor: isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)",
+    },
+    tooltipValue: {
+      fontSize: 14,
+      fontWeight: "600",
+      color: colors.text,
+      marginBottom: 4,
+    },
+    tooltipDate: {
+      fontSize: 12,
+      color: colors.textSecondary,
+    },
+    verticalLine: {
+      position: "absolute",
+      width: 1,
+      backgroundColor: isDarkMode
+        ? "rgba(255,255,255,0.15)"
+        : "rgba(0,0,0,0.15)",
+      zIndex: 11,
+    },
+    dataBadge: {
+      position: "absolute",
+      top: 12,
+      right: 12,
+      backgroundColor: isDarkMode ? "rgba(0,0,0,0.7)" : "rgba(255,255,255,0.9)",
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderWidth: 1,
+      borderColor: isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.2,
+      shadowRadius: 2,
+      elevation: 2,
+      zIndex: 20,
+    },
+    dataBadgeText: {
+      fontSize: 12,
+      fontWeight: "600",
+      color: colors.text,
     },
   });
 
@@ -774,9 +886,11 @@ export default function Graph() {
       </View>
 
       <ScrollView
+        ref={scrollViewRef}
         style={styles.container}
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
       >
         <View style={styles.cryptoHeader}>
           <View style={styles.valueRow}>
@@ -801,76 +915,100 @@ export default function Graph() {
             <NoDataView />
           ) : (
             <View style={styles.chartWrapper}>
-              <LineChart
-                data={chartData}
-                width={width - 32}
-                height={220}
-                chartConfig={chartConfig}
-                bezier
-                style={{
-                  borderRadius: 0,
-                  marginTop: 10,
-                }}
-                withShadow={true}
-                withDots={false}
-                withInnerLines={true}
-                withOuterLines={false}
-                withVerticalLabels={true}
-                withHorizontalLabels={true}
-                withVerticalLines={false}
-                withHorizontalLines={true}
-                yAxisLabel=""
-                yAxisSuffix={` ${getUnit(param)}`}
-                onDataPointClick={handleChartTouch}
-                fromZero={false}
-                segments={5}
-                formatYLabel={(value) => parseFloat(value).toFixed(1)}
-                renderDotContent={({ x, y, index }) => {
-                  if (selectedPoint && selectedPoint.index === index) {
-                    return (
-                      <View
-                        key={index}
-                        style={[
-                          styles.selectedPointIndicator,
-                          {
-                            left: x - 6,
-                            top: y - 6,
-                          },
-                        ]}
-                      />
-                    );
-                  }
-                  return null;
-                }}
-              />
+              {/* The Chart */}
+              <View style={styles.chartTouchable} {...panResponder.panHandlers}>
+                <LineChart
+                  data={chartData}
+                  width={width - 32}
+                  height={CHART_HEIGHT}
+                  chartConfig={chartConfig}
+                  bezier
+                  style={{
+                    borderRadius: 0,
+                  }}
+                  withShadow={true}
+                  withDots={false}
+                  withInnerLines={true}
+                  withOuterLines={false}
+                  withVerticalLabels={true}
+                  withHorizontalLabels={true}
+                  withVerticalLines={false}
+                  withHorizontalLines={true}
+                  yAxisLabel=""
+                  yAxisSuffix={` ${getUnit(param)}`}
+                  formatYLabel={(value) => parseFloat(value).toFixed(1)}
+                />
 
-              {touchCoordinates && selectedPoint && (
-                <View
-                  style={[
-                    styles.tooltipContainer,
-                    {
-                      left: Math.min(
-                        Math.max(touchCoordinates.x - 60, 10),
-                        width - 150
-                      ),
-                      top: Math.min(touchCoordinates.y - 65, 155),
-                    },
-                  ]}
-                >
-                  <Text style={styles.tooltipValue}>
-                    {formatValue(selectedPoint.value)}
-                  </Text>
-                  <Text style={styles.tooltipDate}>
-                    {formatDate(selectedPoint.timestamp)}
+                {/* Interactive overlay */}
+                {selectedPoint && (
+                  <>
+                    {/* Vertical line that follows selection */}
+                    <Animated.View
+                      style={[
+                        styles.verticalLine,
+                        {
+                          left: selectedPoint.x,
+                          top: 0,
+                          height: CHART_HEIGHT,
+                          opacity: panOpacity,
+                        },
+                      ]}
+                    />
+
+                    {/* Selection dot */}
+                    <Animated.View
+                      style={[
+                        styles.selectionDot,
+                        {
+                          left: selectedPoint.x,
+                          top: selectedPoint.y,
+                          opacity: panOpacity,
+                        },
+                      ]}
+                    >
+                      <View style={styles.selectionDotInner} />
+                    </Animated.View>
+
+                    {/* Tooltip that shows value */}
+                    <Animated.View
+                      style={[
+                        styles.tooltip,
+                        {
+                          left: Math.min(
+                            Math.max(selectedPoint.x - 50, 10),
+                            width - 160
+                          ),
+                          top: Math.min(
+                            selectedPoint.y - 60,
+                            CHART_HEIGHT - 80
+                          ),
+                          opacity: panOpacity,
+                        },
+                      ]}
+                    >
+                      <Text style={styles.tooltipValue}>
+                        {formatValue(selectedPoint.value)}
+                      </Text>
+                      <Text style={styles.tooltipDate}>
+                        {formatDate(selectedPoint.timestamp)}
+                      </Text>
+                    </Animated.View>
+                  </>
+                )}
+
+                {/* Data point badge */}
+                <View style={styles.dataBadge}>
+                  <Text style={styles.dataBadgeText}>
+                    {filteredData.length} points
                   </Text>
                 </View>
-              )}
+              </View>
             </View>
           )}
         </View>
 
         <View style={styles.timeframesContainer}>
-          {["6h", "1d", "1w", "1m", "3m"].map((tf) => (
+          {["1d", "1w", "1m", "custom"].map((tf) => (
             <Pressable
               key={tf}
               style={[
@@ -886,15 +1024,13 @@ export default function Graph() {
                   timeframe === tf && styles.timeButtonTextActive,
                 ]}
               >
-                {tf === "6h"
-                  ? "6H"
-                  : tf === "1d"
+                {tf === "1d"
                   ? "1D"
                   : tf === "1w"
                   ? "1W"
                   : tf === "1m"
                   ? "1M"
-                  : "3M"}
+                  : "Custom"}
               </Text>
             </Pressable>
           ))}
