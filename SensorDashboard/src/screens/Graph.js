@@ -40,6 +40,7 @@ export default function Graph() {
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [datePickerType, setDatePickerType] = useState("start");
+  const [touchCoordinates, setTouchCoordinates] = useState(null);
 
   // Fetch data when component mounts or param changes
   useEffect(() => {
@@ -401,6 +402,15 @@ export default function Graph() {
         setSelectedPoint({
           value: pointData.value,
           timestamp: pointData.timestamp,
+          index: data.index,
+          x: data.x,
+          y: data.y,
+        });
+
+        // Set touch coordinates to show tooltip
+        setTouchCoordinates({
+          x: data.x,
+          y: data.y,
         });
       }
     }
@@ -408,23 +418,28 @@ export default function Graph() {
 
   // Chart configuration
   const chartConfig = {
-    backgroundColor: "transparent",
-    backgroundGradientFrom: isDarkMode ? "#001B36" : "#001F3F",
-    backgroundGradientTo: isDarkMode ? "#000814" : "#000C1F",
+    backgroundColor: colors.background,
+    backgroundGradientFrom: isDarkMode ? "#001B36" : colors.background,
+    backgroundGradientTo: isDarkMode ? "#000814" : colors.background,
     decimalPlaces: 1,
     color: (opacity = 1) => `rgba(0, 156, 255, ${opacity})`,
-    labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
+    labelColor: (opacity = 1) =>
+      isDarkMode
+        ? `rgba(255, 255, 255, ${opacity})`
+        : `rgba(0, 0, 0, ${opacity})`,
     propsForBackgroundLines: {
       strokeDasharray: "", // Solid lines
-      stroke: "rgba(255, 255, 255, 0.1)", // Very subtle grid lines
+      stroke: isDarkMode ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)", // Very subtle grid lines
       strokeWidth: 1,
     },
     propsForDots: {
-      r: "0", // Zero radius to hide dots
+      r: selectedPoint ? "4" : "0", // Show dots when a point is selected
       strokeWidth: "0",
     },
     fillShadowGradient: "rgba(0, 156, 255, 1)",
-    fillShadowGradientOpacity: 0.3,
+    fillShadowGradientOpacity: 0.6,
+    fillShadowGradientFrom: "rgba(0, 156, 255, 0)",
+    fillShadowGradientTo: "rgba(0, 156, 255, 0.6)",
     useShadowColorFromDataset: false,
   };
 
@@ -438,14 +453,24 @@ export default function Graph() {
       flexDirection: "row",
       alignItems: "center",
       paddingHorizontal: 16,
-      paddingTop: 12,
+      paddingTop: StatusBar.currentHeight || 12,
       paddingBottom: 12,
       backgroundColor: colors.background,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      elevation: 2,
+      shadowColor: "#000",
+      shadowOpacity: 0.1,
+      shadowRadius: 2,
+      shadowOffset: { width: 0, height: 2 },
     },
     backButton: {
-      marginRight: 16,
+      padding: 8,
+      borderRadius: 20,
+      backgroundColor: isDarkMode ? colors.card : "rgba(0, 0, 0, 0.05)",
     },
     titleContainer: {
+      flex: 1,
       alignItems: "center",
       marginVertical: 20,
     },
@@ -454,6 +479,7 @@ export default function Graph() {
       fontWeight: "bold",
       color: colors.text,
       textAlign: "center",
+      paddingHorizontal: 20,
     },
     dateRange: {
       fontSize: 14,
@@ -471,6 +497,11 @@ export default function Graph() {
       marginVertical: 12,
       borderWidth: 1,
       borderColor: colors.border,
+      elevation: 2,
+      shadowColor: "#000",
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      shadowOffset: { width: 0, height: 2 },
     },
     chartCard: {
       backgroundColor: "transparent",
@@ -482,7 +513,16 @@ export default function Graph() {
       flexDirection: "row",
       justifyContent: "space-between",
       marginBottom: 8,
-      paddingHorizontal: 16,
+      padding: 12,
+      backgroundColor: colors.card,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      elevation: 2,
+      shadowColor: "#000",
+      shadowOpacity: 0.1,
+      shadowRadius: 2,
+      shadowOffset: { width: 0, height: 1 },
     },
     selectedPointValue: {
       fontSize: 18,
@@ -506,6 +546,11 @@ export default function Graph() {
     },
     timeframeButtonActive: {
       backgroundColor: colors.primary,
+      elevation: 2,
+      shadowColor: "#000",
+      shadowOpacity: 0.1,
+      shadowRadius: 2,
+      shadowOffset: { width: 0, height: 1 },
     },
     timeframeButtonInactive: {
       backgroundColor: isDarkMode ? colors.card : "#F1F5F9",
@@ -587,6 +632,23 @@ export default function Graph() {
     chartWrapper: {
       borderRadius: 16,
       overflow: "hidden",
+    },
+    tooltipContainer: {
+      position: "absolute",
+      backgroundColor: colors.card,
+      borderRadius: 8,
+      padding: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      elevation: 5,
+      shadowColor: "#000",
+      shadowOpacity: 0.2,
+      shadowRadius: 3,
+      shadowOffset: { width: 0, height: 2 },
+    },
+    tooltipText: {
+      color: colors.text,
+      fontSize: 12,
     },
   });
 
@@ -693,7 +755,49 @@ export default function Graph() {
                 onDataPointClick={handleChartTouch}
                 fromZero={false}
                 segments={5}
+                formatYLabel={(value) => parseFloat(value).toFixed(1)}
+                renderDotContent={({ x, y, index }) => {
+                  if (selectedPoint && selectedPoint.index === index) {
+                    return (
+                      <View
+                        key={index}
+                        style={{
+                          position: "absolute",
+                          left: x - 4,
+                          top: y - 4,
+                          width: 8,
+                          height: 8,
+                          borderRadius: 4,
+                          backgroundColor: colors.primary,
+                        }}
+                      />
+                    );
+                  }
+                  return null;
+                }}
               />
+
+              {touchCoordinates && selectedPoint && (
+                <View
+                  style={[
+                    styles.tooltipContainer,
+                    {
+                      left: Math.min(
+                        Math.max(touchCoordinates.x - 50, 10),
+                        width - 130
+                      ),
+                      top: Math.min(touchCoordinates.y - 40, 220),
+                    },
+                  ]}
+                >
+                  <Text style={styles.tooltipText}>
+                    {formatValue(selectedPoint.value)}
+                  </Text>
+                  <Text style={styles.tooltipText}>
+                    {formatDate(selectedPoint.timestamp)}
+                  </Text>
+                </View>
+              )}
             </View>
           )}
         </View>

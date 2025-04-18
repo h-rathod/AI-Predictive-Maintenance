@@ -1,18 +1,16 @@
-import React, { useEffect, useState } from 'react';
-import { View, ScrollView, Image, StyleSheet } from 'react-native';
-import { Text, TextInput, Button, Dialog, Portal, Avatar } from 'react-native-paper';
-import * as ImagePicker from 'expo-image-picker';
+import React, { useEffect, useState } from "react";
+import { View, ScrollView, StyleSheet } from "react-native";
+import { Text, TextInput, Button, Dialog, Portal } from "react-native-paper";
 import { supabase } from "../utils/supabase";
 
 export default function ProfileScreen({ navigation }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const [fullName, setFullName] = useState('');
-  const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
-  const [memberSince, setMemberSince] = useState('');
-  const [avatarUrl, setAvatarUrl] = useState(null);
+  const [fullName, setFullName] = useState("");
+  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [memberSince, setMemberSince] = useState("");
 
   const [logoutVisible, setLogoutVisible] = useState(false);
 
@@ -22,7 +20,9 @@ export default function ProfileScreen({ navigation }) {
 
   const fetchUserProfile = async () => {
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) return;
 
     setUser(user);
@@ -30,74 +30,39 @@ export default function ProfileScreen({ navigation }) {
     setMemberSince(new Date(user.created_at).toDateString());
 
     const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', user.id)
+      .from("users")
+      .select("*")
+      .eq("id", user.id)
       .single();
 
     if (data) {
       setFullName(data.full_name);
       setUsername(data.username);
-      setAvatarUrl(data.avatar_url);
     }
 
     setLoading(false);
   };
 
-  const pickImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      allowsEditing: true,
-      quality: 0.7,
-    });
-
-    if (!result.canceled) {
-      const file = result.assets[0];
-      const fileExt = file.uri.split('.').pop();
-      const fileName = `${user.id}.${fileExt}`;
-      const filePath = `${fileName}`;
-
-      const response = await fetch(file.uri);
-      const blob = await response.blob();
-
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, blob, {
-          upsert: true,
-          contentType: 'image/*',
-        });
-
-      if (!uploadError) {
-        const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
-        setAvatarUrl(data.publicUrl);
-
-        await supabase
-          .from('users')
-          .update({ avatar_url: data.publicUrl })
-          .eq('id', user.id);
-      }
-    }
-  };
-
   const handleSave = async () => {
     await supabase
-      .from('users')
+      .from("users")
       .update({
         full_name: fullName,
         username: username,
       })
-      .eq('id', user.id);
+      .eq("id", user.id);
   };
 
   const handleResetPassword = async () => {
     const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: 'https://your-custom-reset-page.com', // Update to your reset page if needed
+      redirectTo: "https://your-custom-reset-page.com", // Update to your reset page if needed
     });
-    if (!error) alert('Password reset link sent to your email.');
+    if (!error) alert("Password reset link sent to your email.");
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
+    navigation.reset({ index: 0, routes: [{ name: "Welcome" }] });
   };
 
   return (
@@ -106,19 +71,6 @@ export default function ProfileScreen({ navigation }) {
         <Text>Loading...</Text>
       ) : (
         <View style={styles.profileContainer}>
-          <Avatar.Image
-            size={120}
-            source={
-              avatarUrl
-                ? { uri: avatarUrl }
-                : require('../../assets/avatar-placeholder.png') // Use default local placeholder
-            }
-            style={styles.avatar}
-          />
-          <Button onPress={pickImage} mode="outlined" style={styles.button}>
-            Change Picture
-          </Button>
-
           <TextInput
             label="Full Name"
             value={fullName}
@@ -143,18 +95,29 @@ export default function ProfileScreen({ navigation }) {
             Save Changes
           </Button>
 
-          <Button mode="outlined" onPress={handleResetPassword} style={styles.button}>
+          <Button
+            mode="outlined"
+            onPress={handleResetPassword}
+            style={styles.button}
+          >
             Reset Password
           </Button>
 
-          <Button mode="text" onPress={() => setLogoutVisible(true)} style={styles.logoutButton}>
+          <Button
+            mode="text"
+            onPress={() => setLogoutVisible(true)}
+            style={styles.logoutButton}
+          >
             Logout
           </Button>
         </View>
       )}
 
       <Portal>
-        <Dialog visible={logoutVisible} onDismiss={() => setLogoutVisible(false)}>
+        <Dialog
+          visible={logoutVisible}
+          onDismiss={() => setLogoutVisible(false)}
+        >
           <Dialog.Title>Confirm Logout</Dialog.Title>
           <Dialog.Content>
             <Text>Are you sure you want to log out?</Text>
@@ -174,27 +137,23 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   profileContainer: {
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 20,
   },
-  avatar: {
-    marginBottom: 10,
-    backgroundColor: '#ccc',
-  },
   input: {
-    width: '100%',
+    width: "100%",
     marginVertical: 8,
   },
   memberText: {
     marginTop: 10,
-    color: '#888',
+    color: "#888",
   },
   button: {
     marginTop: 10,
-    width: '100%',
+    width: "100%",
   },
   logoutButton: {
     marginTop: 20,
-    color: 'red',
+    color: "red",
   },
 });
