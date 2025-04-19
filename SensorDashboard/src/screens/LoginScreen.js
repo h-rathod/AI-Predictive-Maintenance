@@ -16,13 +16,44 @@ export default function LoginScreen({ navigation }) {
   const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async () => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    if (!email || !password) {
+      Alert.alert("Error", "Please enter both email and password");
+      return;
+    }
 
-    if (error) Alert.alert("Login Failed", error.message);
-    else navigation.navigate("Dashboard"); // Your home screen
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        Alert.alert("Login Failed", error.message);
+        return;
+      }
+
+      console.log("✅ Authenticated user:", data.user.email);
+
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("*")
+        .eq("email", email)
+        .single();
+
+      if (userError || !userData) {
+        await supabase.auth.signOut();
+        Alert.alert(
+          "Access Denied",
+          "Your email is not verified. Please complete verification first."
+        );
+        return;
+      }
+
+      navigation.navigate("Dashboard");
+    } catch (err) {
+      console.error("❌ Login error:", err);
+      Alert.alert("Error", "Something went wrong. Please try again.");
+    }
   };
 
   return (

@@ -21,17 +21,28 @@ export default function RegisterScreen({ navigation }) {
   const [showPassword, setShowPassword] = useState(false);
 
   const handleRegister = async () => {
-    setIsRegistering(true);
-
-    const { error } = await supabase.auth.signUp({ email, password });
-
-    if (error) {
-      Alert.alert("Registration Failed", error.message);
-      setIsRegistering(false);
+    if (!email || !password) {
+      Alert.alert("Error", "Please enter both email and password");
       return;
     }
-
+  
+    setIsRegistering(true);
+  
     try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+  
+      if (error) {
+        Alert.alert("Registration Failed", error.message);
+        setIsRegistering(false);
+        return;
+      }
+  
+      console.log("✅ User signed up:", data);
+  
+      // Now generate OTP
       const response = await fetch(
         "https://fmatkstxwdcevvlilysa.supabase.co/functions/v1/generate-otp",
         {
@@ -43,8 +54,9 @@ export default function RegisterScreen({ navigation }) {
           body: JSON.stringify({ email }),
         }
       );
-
+  
       const result = await response.json();
+  
       if (response.ok) {
         setGeneratedOtp(result.otp);
         setShowOtpModal(true);
@@ -52,11 +64,12 @@ export default function RegisterScreen({ navigation }) {
         Alert.alert("OTP Error", result.error || "Failed to generate OTP");
       }
     } catch (err) {
-      Alert.alert("Error", "Network error while sending OTP");
+      console.error("❌ Registration/OTP error:", err);
+      Alert.alert("Error", "Something went wrong. Please try again.");
     }
-
+  
     setIsRegistering(false);
-  };
+  };  
 
   return (
     <View style={styles.container}>

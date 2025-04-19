@@ -39,7 +39,7 @@ const Tab = createBottomTabNavigator();
 const AuthStack = createStackNavigator();
 
 // 🔧 Dev Mode Toggle
-const DEV_MODE = true; // Set to false to restore real login flow
+const DEV_MODE = false; // Set to false to restore real login flow
 
 function AuthNavigation() {
   return (
