@@ -14,6 +14,8 @@ A React Native application built with Expo that provides:
 - Chatbot interface for natural language queries about sensor readings
 - Graphical visualization of historical data
 - Responsive design for mobile and tablet devices
+- Real-time connectivity status checking
+- Comprehensive chart configuration options
 
 ### 2. Chatbot Backend
 
@@ -22,6 +24,7 @@ A Node.js server application that:
 - Processes natural language queries using OpenAI
 - Retrieves sensor data from Supabase database
 - Provides a RESTful API for the frontend
+- Includes a health check endpoint for connectivity verification
 
 ## Tech Stack
 
@@ -33,6 +36,7 @@ A Node.js server application that:
 - React Native Paper
 - Gifted Chat
 - Supabase Client
+- Environment variables management with @env
 
 ### Backend
 
@@ -57,7 +61,7 @@ A Node.js server application that:
 │   │   ├── navigation/        # Navigation configuration
 │   │   ├── screens/           # Main application screens
 │   │   ├── services/          # Service modules
-│   │   └── utils/             # Utility functions
+│   │   └── utils/             # Utility functions and configs
 │   ├── App.js                 # Main application component
 │   └── README.md              # Frontend documentation
 │
@@ -85,6 +89,23 @@ Each component (frontend and backend) has its own setup instructions. Please ref
 
 Both the frontend and backend require environment variables to be set in their respective `.env` files. Sample files (`.env.sample`) are provided in each directory with the required variables.
 
+### Frontend Environment Variables
+
+```
+BACKEND_URL=http://your-backend-url:3000
+SUPABASE_URL=your_supabase_url
+SUPABASE_ANON_KEY=your_supabase_anon_key
+```
+
+### Backend Environment Variables
+
+```
+OPENAI_API_KEY=your_openai_api_key
+SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_anon_key
+PORT=3000
+```
+
 **Important:** Never commit your `.env` files to Git. They are included in `.gitignore` to prevent accidental commits.
 
 ## Database Schema
@@ -93,21 +114,33 @@ The application uses a Supabase PostgreSQL database with the following main tabl
 
 **sensor_history**
 
-     - `id` (uuid, primary key)
-     - `timestamp` (timestamptz)
-     - `temperature_internal` (float8)
-     - `temperature_evaporator` (float8)
-     - `ambient_temperature` (float8)
-     - `humidity_internal` (float8)
-     - `pressure_refrigerant` (float8)
-     - `current_compressor` (float8)
-     - `vibration_level` (float8)
-     - `gas_leak_level` (float8)
-     - `compressor_status` (boolean)
-     - `compressor_cycle_time` (integer)
-     - `energy_consumption` (float8)
-     - `temperature_gradient` (float8)
-     - `pressure_trend` (float8)
+| Column Name              | Data Type   | Description                     |
+| ------------------------ | ----------- | ------------------------------- |
+| `id`                     | uuid        | Primary key                     |
+| `timestamp`              | timestamptz | Time of sensor reading          |
+| `temperature_internal`   | float8      | Internal temperature in °C      |
+| `temperature_evaporator` | float8      | Evaporator temperature in °C    |
+| `ambient_temperature`    | float8      | Ambient temperature in °C       |
+| `humidity_internal`      | float8      | Internal humidity in %          |
+| `pressure_refrigerant`   | float8      | Refrigerant pressure in kPa     |
+| `current_compressor`     | float8      | Compressor current in A         |
+| `vibration_level`        | float8      | Vibration level in mm/s         |
+| `gas_leak_level`         | float8      | Gas leak level in ppm           |
+| `compressor_status`      | boolean     | Whether compressor is active    |
+| `compressor_cycle_time`  | integer     | Compressor cycle time           |
+| `energy_consumption`     | float8      | Energy consumption in kWh       |
+| `temperature_gradient`   | float8      | Temperature change rate in °C/h |
+| `pressure_trend`         | float8      | Pressure change rate in kPa/h   |
+
+## Recent Updates
+
+- Added real-time server connectivity check functionality
+- Implemented comprehensive chart configuration system
+- Added detailed sensor unit display for better readability
+- Standardized sensor naming conventions across the application
+- Enhanced database schema with additional sensor metrics
+- Added health check endpoint on the backend
+- Improved error handling for API requests
 
 ## Contributing
 
