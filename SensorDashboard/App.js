@@ -29,6 +29,7 @@ import WelcomeScreen from "./src/screens/WelcomeScreen";
 import LoginScreen from "./src/screens/LoginScreen";
 import RegisterScreen from "./src/screens/RegisterScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
+import PredictionsScreen from "./src/screens/PredictionsScreen";
 
 // Theme
 import { COLORS } from "./src/utils/theme";
@@ -39,7 +40,7 @@ const Tab = createBottomTabNavigator();
 const AuthStack = createStackNavigator();
 
 // 🔧 Dev Mode Toggle
-const DEV_MODE = false; // Set to false to restore real login flow
+const DEV_MODE = true; // Set to false to restore real login flow
 
 function AuthNavigation() {
   return (
@@ -134,6 +135,8 @@ function CustomTabBar({ state, descriptors, navigation }) {
           iconName = isFocused ? "chatbubble" : "chatbubble-outline";
         } else if (route.name === "Settings") {
           iconName = isFocused ? "settings" : "settings-outline";
+        } else if (route.name === "Predictions") {
+          iconName = isFocused ? "analytics" : "analytics-outline";
         }
 
         return (
@@ -258,6 +261,20 @@ function MainAppNavigation() {
           name="Home"
           component={DashboardStack}
           options={{ headerShown: false }}
+        />
+        <Tab.Screen
+          name="Predictions"
+          component={PredictionsScreen}
+          options={{
+            headerShown: false,
+            tabBarIcon: ({ focused, color }) => (
+              <Ionicons
+                name={focused ? "analytics" : "analytics-outline"}
+                size={24}
+                color={color}
+              />
+            ),
+          }}
         />
         <Tab.Screen name="Chatbot" component={Chatbot} />
         <Tab.Screen name="Settings" component={Settings} />

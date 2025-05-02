@@ -32,6 +32,7 @@ const handleChatRequest = async (req, res) => {
 
     // Step 3: Execute the appropriate query based on the type
     switch (queryType) {
+      // Sensor data queries
       case "CURRENT_VALUE":
         data = await supabaseService.getCurrentValue(field);
         break;
@@ -77,6 +78,25 @@ const handleChatRequest = async (req, res) => {
 
       case "MAINTENANCE_CHECK":
         data = await supabaseService.checkMaintenance();
+        break;
+
+      // New ML prediction queries
+      case "PREDICTION_LATEST":
+        data = await supabaseService.getLatestPrediction();
+        break;
+
+      case "PREDICTION_HISTORY":
+        const predHistoryDays = parseInt(timeRange);
+        data = await supabaseService.getPredictionHistory(field, predHistoryDays);
+        break;
+
+      case "ANOMALY_SUMMARY":
+        const anomalyDays = parseInt(timeRange);
+        data = await supabaseService.getAnomalySummary(anomalyDays);
+        break;
+
+      case "PREDICTION_MAINTENANCE":
+        data = await supabaseService.checkPredictionMaintenance();
         break;
 
       default:
