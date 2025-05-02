@@ -1,0 +1,6 @@
+[submodule "react-native"]
+	path = react-native
+	url = https://github.com/h-rathod/AI-Predictive-Maintenance.git
+[submodule "ml-back"]
+	path = ml-back
+	url = https://github.com/h-rathod/AI-Predictive-Maintenance-ML-Backend.git
