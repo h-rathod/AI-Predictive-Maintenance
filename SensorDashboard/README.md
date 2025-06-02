@@ -1,11 +1,13 @@
 # Sensor Dashboard (Frontend)
 
-React Native application that provides an interactive dashboard for monitoring sensor data and includes a chatbot interface for querying data using natural language.
+React Native application that provides an interactive dashboard for monitoring sensor data, predictive maintenance insights, and includes a chatbot interface for querying data using natural language.
 
 ## Features
 
 - Real-time sensor data display
 - Interactive graphs for historical data analysis
+- Predictive maintenance insights (anomaly detection, failure probability, health index, part at risk)
+- Part at Risk identification to pinpoint which component is likely to fail (compressor, condenser, evaporator, etc.)
 - Chatbot interface for natural language queries
 - Responsive design for mobile and tablet devices
 - Server connectivity status check

@@ -103,7 +103,6 @@ export const getPredictionStats = async (timeRange = "present") => {
         anomaly_count: 0,
         failure_probability_avg: 0,
         health_index_avg: 0,
-        rul_avg: 0,
         status: "unknown",
         latest_predictions: [],
         dataTimestamp: new Date(),
@@ -113,13 +112,26 @@ export const getPredictionStats = async (timeRange = "present") => {
     // If present, just use the latest values directly (no averaging needed)
     if (timeRange === "present" && data.length > 0) {
       const latestData = data[0];
+      
+      // Extract part at risk information from RUL field if available
+      let partAtRisk = "unknown";
+      
+      // Check if RUL contains part at risk information
+      if (typeof latestData.rul === 'string' && latestData.rul.includes('Part at risk:')) {
+        const match = latestData.rul.match(/\(Part at risk: ([^\)]+)\)/);
+        if (match && match[1]) {
+          partAtRisk = match[1].trim();
+        }
+      }
+      
       return {
         total_predictions: data.length,
         anomaly_count: latestData.anomaly ? 1 : 0,
         anomaly_percentage: latestData.anomaly ? 100 : 0,
         failure_probability_avg: parseFloat(latestData.failure_prob.toFixed(2)),
         health_index_avg: parseFloat(latestData.health_index.toFixed(1)),
-        rul_avg: parseFloat(latestData.rul.toFixed(1)),
+
+        part_at_risk: partAtRisk,
         status: determineStatus(latestData.anomaly, latestData.failure_prob, latestData.health_index),
         latest_predictions: [latestData],
         dataTimestamp: new Date(latestData.timestamp),
@@ -129,27 +141,63 @@ export const getPredictionStats = async (timeRange = "present") => {
     // Count anomalies
     const anomalyCount = data.filter(item => item.anomaly === true).length;
     
+    // Process data and extract part at risk information
+    const processedData = data.map(item => {
+      let partAtRisk = "unknown";
+      
+      // Check if RUL contains part at risk information
+      if (typeof item.rul === 'string' && item.rul.includes('Part at risk:')) {
+        const match = item.rul.match(/\(Part at risk: ([^\)]+)\)/);
+        if (match && match[1]) {
+          partAtRisk = match[1].trim();
+        }
+      }
+      
+      return {
+        ...item,
+        part_at_risk: partAtRisk
+      };
+    });
+    
     // Calculate averages
-    const failureProbAvg = data.reduce((sum, item) => sum + item.failure_prob, 0) / data.length;
-    const healthIndexAvg = data.reduce((sum, item) => sum + item.health_index, 0) / data.length;
-    const rulAvg = data.reduce((sum, item) => sum + item.rul, 0) / data.length;
+    const failureProbAvg = processedData.reduce((sum, item) => sum + item.failure_prob, 0) / processedData.length;
+    const healthIndexAvg = processedData.reduce((sum, item) => sum + item.health_index, 0) / processedData.length;
+
+
+    // Find most common part at risk
+    const partCounts = {};
+    processedData.forEach(item => {
+      if (item.part_at_risk && item.part_at_risk !== 'unknown') {
+        partCounts[item.part_at_risk] = (partCounts[item.part_at_risk] || 0) + 1;
+      }
+    });
+    
+    let mostCommonPart = "unknown";
+    let highestCount = 0;
+    
+    Object.entries(partCounts).forEach(([part, count]) => {
+      if (count > highestCount && part !== 'none') {
+        mostCommonPart = part;
+        highestCount = count;
+      }
+    });
 
     // Determine status based on combined metrics
     const status = determineStatus(
-      anomalyCount > data.length * 0.3, 
+      anomalyCount > processedData.length * 0.3, 
       failureProbAvg, 
       healthIndexAvg
     );
 
     return {
-      total_predictions: data.length,
+      total_predictions: processedData.length,
       anomaly_count: anomalyCount,
-      anomaly_percentage: parseFloat(((anomalyCount / data.length) * 100).toFixed(1)),
+      anomaly_percentage: (anomalyCount / processedData.length * 100).toFixed(1),
       failure_probability_avg: parseFloat(failureProbAvg.toFixed(2)),
       health_index_avg: parseFloat(healthIndexAvg.toFixed(1)),
-      rul_avg: parseFloat(rulAvg.toFixed(1)),
+      part_at_risk: mostCommonPart,
       status,
-      latest_predictions: data.slice(0, 5),
+      latest_predictions: processedData.slice(0, 5),
       dataTimestamp: new Date(),
     };
   } catch (error) {

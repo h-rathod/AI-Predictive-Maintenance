@@ -581,14 +581,28 @@ export default function PredictionsScreen() {
             </Text>
           </View>
           
-          {/* RUL Prediction */}
+          {/* Part at Risk Prediction */}
           <View style={styles.modelCard}>
-            <Text style={styles.modelTitle}>REMAINING USEFUL LIFE</Text>
-            <Text style={[styles.modelValue, { color: colors.text }]}>
-              {predictionStats.rul_avg.toFixed(0)} hrs
+            <Text style={styles.modelTitle}>PART AT RISK</Text>
+            <Text 
+              style={[styles.modelValue, { 
+                color: predictionStats.part_at_risk && 
+                       predictionStats.part_at_risk !== 'none' && 
+                       predictionStats.part_at_risk !== 'unknown' ? 
+                       getStatusColor('warning') : getStatusColor('normal'),
+                fontSize: 20 
+              }]}
+            >
+              {predictionStats.part_at_risk ? 
+                (predictionStats.part_at_risk === 'none' || predictionStats.part_at_risk === 'unknown' ? 
+                  'None' : 
+                  predictionStats.part_at_risk.split('_').map(word => 
+                    word.charAt(0).toUpperCase() + word.slice(1)
+                  ).join(' ')
+                ) : 'Unknown'}
             </Text>
             <Text style={styles.modelDescription}>
-              Estimated time until maintenance required
+              Component predicted to be at risk of failure
             </Text>
           </View>
         </View>
