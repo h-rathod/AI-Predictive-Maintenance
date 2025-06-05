@@ -1,6 +1,6 @@
 # FridgeGuard ML Integration
 
-This project extends the FridgeGuard application with machine learning capabilities for anomaly detection in refrigerator sensor data.
+This project extends the FridgeGuard application with machine learning capabilities for anomaly detection, failure prediction, health index estimation, and part risk identification in refrigerator sensor data.
 
 ## Project Structure
 
@@ -12,19 +12,22 @@ This project extends the FridgeGuard application with machine learning capabilit
 
 ### 1. ML Backend Server
 
-The ML backend is a Flask server that loads a pre-trained autoencoder model for anomaly detection. The model analyzes patterns in sensor data to identify potential anomalies in refrigerator operation.
+The ML backend is a Java Spring Boot application that loads multiple pre-trained ML models for comprehensive predictive maintenance. The models analyze patterns in sensor data to identify anomalies, predict failure probability, estimate health index, and identify which specific refrigerator component is at risk of failure.
 
 Key files:
 
-- `app.py` - Flask application
-- `requirements.txt` - Python dependencies
-- `autoencoder_model.h5` / `autoencoder_model.keras` - Pre-trained model
-- `scaler.pkl` - Data normalization parameters
-- `threshold.pkl` - Anomaly detection threshold
+- `src/main/java/com/example/mlbackend/MlBackendApplication.java` - Spring Boot application
+- `pom.xml` - Maven dependencies
+- `src/main/resources/model/autoencoder.model` - Pre-trained anomaly detection model
+- `src/main/resources/model/rf_failure.model` - Random Forest failure prediction model
+- `src/main/resources/model/rf_health_index.model` - Random Forest health index model
+- `src/main/resources/model/part_risk.model` - Deep Learning part risk prediction model
+- `src/main/resources/model/part_risk_normalizer.bin` - Normalizer for part risk model
+- `src/main/resources/model/threshold.bin` - Anomaly detection threshold
 
 ### 2. React Native Integration
 
-The mobile app includes a new "Predictions" screen that communicates with the ML backend to display anomaly detection results.
+The mobile app includes a "Predictions" screen that communicates with the Supabase database to display anomaly detection, failure probability, health index, and part at risk prediction results.
 
 Key files:
 
@@ -35,36 +38,25 @@ Key files:
 
 ### ML Backend Setup
 
-1. Navigate to the ml-backend directory
+1. Navigate to the ml-back directory
 
 ```bash
-cd ml-backend
+cd ml-back
 ```
 
-2. Create a virtual environment
+2. Build the application with Maven
 
 ```bash
-python -m venv venv
+mvn clean install
 ```
 
-3. Activate the virtual environment
-
-   - Windows: `venv\Scripts\activate`
-   - Unix/MacOS: `source venv/bin/activate`
-
-4. Install dependencies
+3. Start the server
 
 ```bash
-pip install -r requirements.txt
+mvn spring-boot:run
 ```
 
-5. Start the server
-
-```bash
-python app.py
-```
-
-The ML server runs on port 5000 by default.
+The ML server runs on port 8080 by default.
 
 ### Mobile App Setup
 
@@ -97,11 +89,14 @@ npm start
    - Sends this data to the ML backend for analysis
    - Displays the results, showing any detected anomalies
 
-3. The anomaly detection process:
+3. The prediction process:
    - Data is preprocessed and normalized
-   - Fed through the autoencoder model
-   - Reconstruction error is calculated
-   - Points with high error are flagged as anomalies
+   - Fed through multiple ML models:
+     - Autoencoder for anomaly detection
+     - Random Forest for failure probability
+     - Random Forest for health index estimation
+     - Deep Learning model for part risk prediction
+   - Results are stored in Supabase for frontend retrieval
 
 ## Development Notes
 
