@@ -1,63 +1,80 @@
-# AI Predictive Maintenance
+# IoT Predictive Maintenance System
 
-A React Native application with a chatbot interface for IoT sensor monitoring and predictive maintenance. The system allows users to query sensor data using natural language and visualize real-time and historical sensor readings.
+A comprehensive IoT solution for refrigeration equipment monitoring, anomaly detection, and predictive maintenance using machine learning.
 
-## Project Overview
+## System Overview
 
-This project consists of two main components:
+This integrated system provides end-to-end capabilities for monitoring refrigeration equipment, detecting anomalies, predicting failures, and estimating remaining useful life. It consists of three main components:
 
-### 1. SensorDashboard (Frontend)
+1. **Java Spring ML Backend (`ml-back`)**: Handles machine learning inference for predictive maintenance (now located at `ml-back` inside this directory)
+2. **React Native Frontend (`SensorDashboard`)**: Mobile app for visualizing sensor data and ML predictions
+3. **Node.js Chatbot Backend (`chatbot-backend`)**: Provides natural language interface for querying sensor data and prediction results
 
-A React Native application built with Expo that provides:
+![System Architecture](https://i.imgur.com/example-architecture.png)
 
-- Interactive dashboard for monitoring sensor data
-- Chatbot interface for natural language queries about sensor readings
-- Graphical visualization of historical data
-- Responsive design for mobile and tablet devices
-- Real-time connectivity status checking
-- Comprehensive chart configuration options
+## Components
 
-### 2. Chatbot Backend
+### 1. Java Spring ML Backend (`ml-back`)
 
-A Node.js server application that:
+- **Location:** [`ml-back/`](./ml-back/README.md)
+- Handles all ML inference and predictive maintenance logic
+- See [ml-back/README.md](./ml-back/README.md) for backend-specific setup and details
 
-- Processes natural language queries using OpenAI
-- Retrieves sensor data from Supabase database
-- Provides a RESTful API for the frontend
-- Includes a health check endpoint for connectivity verification
+### 2. React Native Frontend (`SensorDashboard`)
 
-## Tech Stack
+- **Location:** [`SensorDashboard/`](./SensorDashboard/README.md)
+- Mobile dashboard for real-time and historical sensor data, and ML prediction visualization
+- See [SensorDashboard/README.md](./SensorDashboard/README.md) for mobile setup and usage
 
-### Frontend
+### 3. Node.js Chatbot Backend (`chatbot-backend`)
 
-- React Native + Expo
-- React Navigation
-- Victory Native (charts)
-- React Native Paper
-- Gifted Chat
-- Supabase Client
-- Environment variables management with @env
+- **Location:** [`chatbot-backend/`](./chatbot-backend/README.md)
+- REST API and OpenAI-powered chatbot for natural language queries
+- See [chatbot-backend/README.md](./chatbot-backend/README.md) for backend setup
 
-### Backend
+## Installation & Setup
 
-- Node.js + Express
-- OpenAI API
-- Supabase Client
-- Middleware: CORS, body-parser
+1. **Clone this repository**
+2. All modules are now inside this `react-native` directory:
+   - `SensorDashboard/` (mobile app)
+   - `chatbot-backend/` (chatbot server)
+   - `ml-back/` (Java Spring ML backend)
+3. Follow each module's README for detailed setup instructions
 
-### Database
+## How to Run
 
-- Supabase (PostgreSQL)
+- **Frontend (SensorDashboard):**
+  - See [SensorDashboard/README.md](./SensorDashboard/README.md)
+- **Chatbot Backend:**
+  - See [chatbot-backend/README.md](./chatbot-backend/README.md)
+- **ML Backend:**
+  - See [ml-back/README.md](./ml-back/README.md)
 
 ## Project Structure
 
 ```
-/
-├── SensorDashboard/           # Frontend React Native application
-│   ├── src/
-│   │   ├── api/               # API integration
-│   │   ├── components/        # Reusable components
-│   │   ├── context/           # React Context providers
+react-native/
+├── SensorDashboard/       # React Native mobile app
+│   ├── README.md
+│   └── ...
+├── chatbot-backend/       # Node.js chatbot API
+│   ├── README.md
+│   └── ...
+├── ml-back/               # Java Spring ML backend
+│   ├── README.md
+│   └── ...
+├── README.md              # (You are here) Unified project documentation
+└── ...
+```
+
+## About
+
+This repository unifies all major components for predictive maintenance and IoT monitoring in a single codebase for easier management, deployment, and collaboration.
+
+For detailed documentation, see each module's README:
+- [SensorDashboard/README.md](./SensorDashboard/README.md)
+- [chatbot-backend/README.md](./chatbot-backend/README.md)
+- [ml-back/README.md](./ml-back/README.md)
 │   │   ├── navigation/        # Navigation configuration
 │   │   ├── screens/           # Main application screens
 │   │   ├── services/          # Service modules
