@@ -49,7 +49,7 @@ To get started, follow these steps:
 ## Project Structure
 
 ```
-react-native/
+AI-Predictive-Maintenance/
 ├── SensorDashboard/       # React Native mobile app
 │   ├── navigation/        # Navigation configuration
 │   ├── screens/           # Main application screens
