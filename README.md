@@ -164,4 +164,4 @@ This repository unifies all major components of the IoT Predictive Maintenance S
 
 For questions or feedback, please open an issue on this repository.
 
-© 2025 [Harsh Rathod](h-rathod.github.io). All rights reserved.
+© 2025 [Harsh Rathod](https://h-rathod.github.io). All rights reserved.
