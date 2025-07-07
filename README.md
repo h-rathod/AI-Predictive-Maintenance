@@ -1,4 +1,4 @@
-# IoT Predictive Maintenance System
+# AI Based Predictive Maintenance System
 
 A comprehensive IoT solution for monitoring refrigeration equipment, detecting anomalies, predicting failures, and estimating remaining useful life using machine learning.
 
